@@ -18,6 +18,7 @@ Local library files, QMD retrieval, and persistence settings.
   configure --expected HASH|new --key KEY < settings.json
   put --path RELATIVE --expected HASH|new --key KEY < file
   get --path RELATIVE [--raw]      Metadata/hash, or exact binary stdout
+  pdf-text --path RELATIVE         Poppler text to stdout, page breaks retained
   list [--prefix TEXT] [--limit 100]
   operation --key KEY             Recover write outcome from current bytes
   qmd ...                        Native QMD CLI with private index/cache
@@ -39,15 +40,18 @@ export function qmdEnvironment(root) {
 }
 async function runQmd(root, args) {
   const cli = fileURLToPath(new URL('./cli/qmd.js', import.meta.resolve('@tobilu/qmd')));
-  return locked(root, root => new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [cli, ...args], { cwd: path.join(root, 'files'), env: qmdEnvironment(root), stdio: 'inherit' });
+  return locked(root, root => runNative(root, process.execPath, [cli, ...args]));
+}
+async function runNative(root, executable, args, stdio = 'inherit') {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, args, { cwd: path.join(root, 'files'), env: qmdEnvironment(root), stdio });
     const interrupt = () => child.kill('SIGINT');
     const terminate = () => child.kill('SIGTERM');
     process.once('SIGINT', interrupt); process.once('SIGTERM', terminate);
     const cleanup = () => { process.removeListener('SIGINT', interrupt); process.removeListener('SIGTERM', terminate); };
     child.once('error', error => { cleanup(); reject(error); });
     child.once('exit', (code, signal) => { cleanup(); resolve(code ?? (signal ? 130 : 4)); });
-  }));
+  });
 }
 async function readSettingsInput() {
   const parts = []; let bytes = 0;
@@ -68,7 +72,7 @@ export async function main(argv = process.argv.slice(2)) {
     const root = process.env.EZ_LIBRARY_STATE || '/state';
     if (command === 'qmd') { process.exitCode = await runQmd(root, rest); return; }
     const allowed = { doctor: [], settings: [], configure: ['expected', 'key'], put: ['path', 'expected', 'key'],
-      get: ['path', 'raw'], list: ['prefix', 'limit'], operation: ['key'] }[command];
+      get: ['path', 'raw'], 'pdf-text': ['path'], list: ['prefix', 'limit'], operation: ['key'] }[command];
     if (!allowed) fail('INVALID', 'Unknown command; use --help');
     const { values: opts } = parseArgs({ args: rest, options: Object.fromEntries([...allowed, 'json'].map(k => [k, { type: ['json', 'raw'].includes(k) ? 'boolean' : 'string' }])), strict: true });
     if (command === 'configure') {
@@ -97,6 +101,17 @@ export async function main(argv = process.argv.slice(2)) {
     await rootDir(root);
     if (command === 'operation') { emit(await operation(root, opts.key)); return; }
     if (command === 'list') { emit(await list(root, opts.prefix, opts.limit === undefined ? 100 : Number(opts.limit))); return; }
+    if (command === 'pdf-text') {
+      if (!opts.path) fail('INVALID', 'Supply --path');
+      const file = await safePath(root, 'files/' + opts.path);
+      const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        if (!(await handle.stat()).isFile()) fail('UNSAFE_PATH', 'Expected a regular file');
+        process.exitCode = await runNative(root, '/usr/bin/pdftotext',
+          ['-layout', '-enc', 'UTF-8', '/proc/self/fd/3', '-'], ['ignore', 'inherit', 'inherit', handle.fd]);
+      } finally { await handle.close(); }
+      return;
+    }
     if (command === 'get') {
       if (!opts.path) fail('INVALID', 'Supply --path');
       const file = await safePath(root, 'files/' + opts.path);

@@ -139,3 +139,15 @@ test('help and doctor work without configuration; subprocess environment exclude
   assert.equal(env.TELEGRAM_BOT_TOKEN, undefined); assert.equal(env.NODE_OPTIONS, undefined);
   delete process.env.TELEGRAM_BOT_TOKEN; delete process.env.NODE_OPTIONS;
 });
+
+
+test('PDF extraction rejects traversal, symlinks, directories and missing paths before launching Poppler', async t => {
+  const root = await fixture(t); await save(root, 'safe');
+  await fs.symlink('/etc/passwd', path.join(root, 'files/link.pdf'));
+  for (const relative of ['../settings.json', 'link.pdf', 'notes']) {
+    const result = spawnSync(process.execPath, [cli, 'pdf-text', '--path', relative], { env: { ...process.env, EZ_LIBRARY_STATE: root }, encoding: 'utf8' });
+    assert.equal(result.status, 2); assert.match(result.stderr, /UNSAFE_PATH/); assert.equal(result.stdout, '');
+  }
+  const result = spawnSync(process.execPath, [cli, 'pdf-text'], { env: { ...process.env, EZ_LIBRARY_STATE: root }, encoding: 'utf8' });
+  assert.equal(result.status, 2); assert.match(result.stderr, /Supply --path/);
+});

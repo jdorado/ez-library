@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-beta.2 — unreleased
+
+- Default owner attachment intake to preservation and verified indexing through the agent skill.
+- Bundle native Poppler PDF text extraction with source/page-linked derived notes.
+
 ## 0.1.0-beta.1 — unreleased
 
 - Introduce a separate Dockerized Library CLI and native QMD 2.8.3 command access.

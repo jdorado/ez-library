@@ -1,6 +1,6 @@
 {
   "name": "@jc_stack/ez-library",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "private": true,
   "description": "Dockerized agent library files, QMD retrieval and explicit persistence settings",
   "type": "module",

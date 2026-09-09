@@ -21,6 +21,12 @@ ez library doctor
 
 Installation snapshots/builds the package without starting it. `start`, `stop`, `status` and `uninstall` are provided by `ez plugins`. Do not start a parallel standalone deployment for an installed agent. The manifest identifies plugin `library`, command `library`, and skill `skills/library/SKILL.md`.
 
+## Default attachment intake
+
+With the Library skill onboarded, owner-supplied attachments are saved and indexed by default, including when the owner asks only for a summary. The agent records this routing in its workspace tool instructions during onboarding. Explicit do-not-save requests override the default. This is agent guidance, not a relay upload hook.
+
+`ez library pdf-text --path documents/example.pdf` runs bundled Poppler and emits UTF-8 text with page breaks. The agent preserves the original, saves source-linked Markdown, refreshes QMD, and verifies retrieval. Scanned PDFs require a separate OCR tool; an archived original alone is not content indexing. Provider uploads still follow the selected settings.
+
 ## First usable library
 
 Choose local storage initially; `settings.json` here is a temporary input file in the owning workspace:
