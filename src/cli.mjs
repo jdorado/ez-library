@@ -9,6 +9,7 @@ import { constants } from 'node:fs';
 import { fail, rootDir, locked, settings, validateSettings, put, operation, organize, list, safePath, digest, jsonBytes, defaults } from './store.mjs';
 import { syncPlan, syncAdopt, syncPolicy, syncRun, syncStatus } from './sync.mjs';
 import { rclone } from './native.mjs';
+import { gitKey, gitAdopt, git } from './git-sync.mjs';
 
 const version = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url))).version;
 const emit = data => process.stdout.write(JSON.stringify({ ok: true, data }) + '\n');
@@ -32,6 +33,9 @@ Local library files, QMD retrieval, and persistence settings.
   sync-status                    Binding, last sync, extraction and embedding status
   sync-run                       Reconcile now and refresh the index
   sync-policy --expected HASH --mode paused|two-way [--interval 60]
+  git-key --repository OWNER/REPO  Create a repository key; return public key only
+  git-adopt --repository OWNER/REPO [--branch main] Import and enable native Git sync
+  git ...                        Native Git in the bound Library working tree
 
 Local commands emit JSON (--json is also accepted); get --raw and qmd preserve
 native output. Files are limited to 512 MiB. Existing files require their current
@@ -82,6 +86,13 @@ export async function main(argv = process.argv.slice(2)) {
     const [command, ...rest] = argv;
     const root = process.env.EZ_LIBRARY_STATE || '/state';
     if (command === 'qmd') { process.exitCode = await runQmd(root, rest); return; }
+    if (command === 'git') {
+      process.exitCode = await locked(root, async root => {
+        const { config } = await syncStatus(root);
+        if (config?.backend !== 'git') fail('INVALID', 'No Git library is bound');
+        return (await git(root, config, rest, { inherit: true })).code;
+      }); return;
+    }
     if (command === 'rclone') {
       process.exitCode = await locked(root, async root => {
         await fs.mkdir(path.join(root, 'sync'), { recursive: true, mode: 0o700 });
@@ -92,10 +103,13 @@ export async function main(argv = process.argv.slice(2)) {
       get: ['path', 'raw'], 'pdf-text': ['path'], list: ['prefix', 'limit'], operation: ['key'],
       'sync-plan': ['remote'], 'sync-adopt': ['remote'], 'sync-status': [], 'sync-run': [],
       move: ['path', 'to', 'expected', 'key'], remove: ['path', 'expected', 'key'],
+      'git-key': ['repository'], 'git-adopt': ['repository', 'branch'],
       'sync-policy': ['expected', 'mode', 'interval'] }[command];
     if (!allowed) fail('INVALID', 'Unknown command; use --help');
     const { values: opts } = parseArgs({ args: rest, options: Object.fromEntries([...allowed, 'json'].map(k => [k, { type: ['json', 'raw'].includes(k) ? 'boolean' : 'string' }])), strict: true });
     if (command === 'sync-plan') { emit(await syncPlan(root, opts.remote)); return; }
+    if (command === 'git-key') { emit(await gitKey(root, opts.repository)); return; }
+    if (command === 'git-adopt') { emit(await gitAdopt(root, opts.repository, opts.branch)); return; }
     if (command === 'sync-adopt') { emit(await syncAdopt(root, opts.remote)); return; }
     if (command === 'sync-status') { emit(await syncStatus(root)); return; }
     if (command === 'sync-run') { emit(await syncRun(root)); return; }

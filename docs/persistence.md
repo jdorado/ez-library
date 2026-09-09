@@ -1,6 +1,6 @@
 # Persistence policy and provider handoff
 
-Settings are agent-readable policy. Applying them is agent-owned work through existing provider tools. Legacy settings do not start synchronization. The separate [folder binding](folder-sync.md) enables native rclone bisync; it is authoritative when present, and the agent must stop manual uploads to that same destination. GitHub/Hybrid settings do not imply native folder-sync support. The default is local storage with backup off. Setting a mode does not move existing files or authorize publication outside the selected library.
+Settings are agent-readable policy. Applying them is agent-owned work through existing provider tools. Legacy settings do not start synchronization. The separate [folder binding](folder-sync.md) enables native rclone bisync; it is authoritative when present, and the agent must stop manual uploads to that same destination. GitHub-only settings can be activated through the separate [Git binding](github-sync.md); Hybrid settings do not activate native sync. The default is local storage with backup off. Setting a mode does not move existing files or authorize publication outside the selected library.
 
 Example Hybrid settings (replace the example account and destination references):
 

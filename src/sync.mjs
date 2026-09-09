@@ -3,6 +3,7 @@ import path from 'node:path';
 import { atomic, fail, hash, jsonBytes, locked, safePath } from './store.mjs';
 import { inventory, refreshIndex } from './indexer.mjs';
 import { rclone, succeeded } from './native.mjs';
+import { gitTransfer } from './git-sync.mjs';
 
 const marker = 'LIBRARY_SYNC_ACCESS';
 const filters = '- .*\n- .*/**\n';
@@ -137,8 +138,11 @@ export async function syncRun(root) {
     let status = { state: 'syncing', startedAt: new Date().toISOString() };
     await atomic(path.join(root, 'sync/status.json'), jsonBytes(status));
     try {
-      if (await remoteIdentity(root, config.remote) !== config.identity) fail('CONFLICT', 'Mapped folder disappeared or changed identity; no automatic recreation');
-      succeeded(await rclone(root, bisyncArgs(root, config)), 'Native bisync');
+      if (config.backend === 'git') status.git = await gitTransfer(root, config);
+      else {
+        if (await remoteIdentity(root, config.remote) !== config.identity) fail('CONFLICT', 'Mapped folder disappeared or changed identity; no automatic recreation');
+        succeeded(await rclone(root, bisyncArgs(root, config)), 'Native bisync');
+      }
       status = { ...status, state: 'indexing', syncedAt: new Date().toISOString() };
       await atomic(path.join(root, 'sync/status.json'), jsonBytes(status));
       const index = await refreshIndex(root);

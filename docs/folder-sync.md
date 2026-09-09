@@ -53,9 +53,9 @@ Organization is independent agent policy. Use guarded `move`, `remove` and
 Once bound, disable manual Composio mirroring to this same folder. Do not run
 two transport writers or keep a second parent-workspace mirror manifest. Native
 bisync listings and Library status live under `/state/sync`, accessible through
-the plugin from both main and child tasks. Legacy GitHub/Hybrid persistence
-continues through the agent's provider tools; automatic GitHub/Hybrid sync is
-not implemented in this release.
+the plugin from both main and child tasks. GitHub-only sync has a separate [native Git binding](github-sync.md). Hybrid
+persistence continues through the agent's provider tools; automatic Hybrid sync
+is not implemented.
 
 ## Conflicts, indexing and recovery
 

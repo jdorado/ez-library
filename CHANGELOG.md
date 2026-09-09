@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-beta.6 — unreleased
+
+- Add native GitHub-only two-way sync, remote commit verification and automatic QMD/PDF refresh.
+- Bootstrap repository-specific SSH deploy keys through an already connected GitHub plugin; keep OAuth credentials in that provider.
+- Retain native Git merge stages and pause on conflicts, unsupported trees, ignored originals or changed storage policy.
+- Add isolated-branch live GitHub smoke coverage; existing Hybrid settings remain unchanged.
+
 ## 0.1.0-beta.5 — unreleased
 
 - Adopt an existing folder with native rclone bisync, persistent binding/receipts, conflicts preserved and deletion safeguards.
