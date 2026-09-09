@@ -26,6 +26,12 @@ Maintain a portable manifest alongside authored notes when persisting: logical r
 
 Hybrid distributes files across providers; it does not duplicate each file. Independently configure backup intent as either `{"mode":"off"}` or `{"mode":"external","connection":"backup-tool-profile","destination":"selected-backup-destination"}`. An existing tool must actually create versioned backups and demonstrate restore; these settings install or schedule nothing. Recover both storage destinations into a clean directory, reconstruct relative paths/attachment links, and compare content hashes before claiming full recovery.
 
+## Backup timing
+
+An owner request to enable provider backup and sync authorizes an initial copy now and backup of subsequent agent saves within their intake/update tasks. Keep primary storage unchanged. The agent creates/reuses the requested private destination, verifies it, configures external backup and records the after-save policy in workspace tool instructions. No invented daily schedule or delay; a requested reconciliation schedule is additional protection.
+
+For each changed original or derived note, preserve remote versions and relative paths, verify provider readback, and checkpoint hashes and remote IDs in the portable manifest. Skip verified unchanged content. Failed transfers stay pending with local originals preserved; report the gap rather than “synced.” This is agent-owned execution, not a background filesystem watcher. Writes outside this intake require explicit reconciliation. Connection alone activates neither behavior.
+
 References:
 - https://docs.composio.dev/toolkits/googledrive
 - https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github
