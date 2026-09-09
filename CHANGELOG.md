@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-beta.4 — unreleased
+
+- Default remote persistence to browsable ordinary files and stable paths, never archive workarounds.
+- Clarify immediate save-batch mirroring, conflict preservation and the boundary to native continuous/two-way sync engines.
+
 ## 0.1.0-beta.3 — unreleased
 
 - Interpret enabled provider backup as initial sync plus backup after each agent save; do not invent daily schedules.

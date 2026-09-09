@@ -26,7 +26,15 @@ Maintain a portable manifest alongside authored notes when persisting: logical r
 
 Hybrid distributes files across providers; it does not duplicate each file. Independently configure backup intent as either `{"mode":"off"}` or `{"mode":"external","connection":"backup-tool-profile","destination":"selected-backup-destination"}`. An existing tool must actually create versioned backups and demonstrate restore; these settings install or schedule nothing. Recover both storage destinations into a clean directory, reconstruct relative paths/attachment links, and compare content hashes before claiming full recovery.
 
-## Backup timing
+## Browsable mirror and timing
+
+Remote persistence defaults to ordinary files at matching relative paths, not an archive, base64 container or encrypted bundle. Preserve zero-byte files. Drive folders are real folders; GitHub stores ordinary files and history, but Git does not track empty directories. Preserve any previous archive separately during migration rather than treating it as the live tree.
+
+Use recorded Drive IDs for in-place updates and commit/push GitHub save batches. Cloud edits that diverge from the last verified content are conflicts, not permission to overwrite. A verified two-way import/delete policy is separate from the default Library-to-provider mirror. Native Composio file staging can supply binary references to its Drive upload/update tools without exposing credentials.
+
+Cadence is immediately after each completed agent save batch. This agent workflow is not an autonomous watcher, and no bounded latency or offline recovery guarantee is claimed. For unattended continuous/bidirectional synchronization, use an established engine such as rclone or an appropriate provider client with a separately verified binding and conflict policy. Composio and Git operations alone do not provide that service. Do not emulate it with a scheduled LLM loop.
+
+## Initial copy and failures
 
 An owner request to enable provider backup and sync authorizes an initial copy now and backup of subsequent agent saves within their intake/update tasks. Keep primary storage unchanged. The agent creates/reuses the requested private destination, verifies it, configures external backup and records the after-save policy in workspace tool instructions. No invented daily schedule or delay; a requested reconciliation schedule is additional protection.
 

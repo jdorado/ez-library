@@ -56,6 +56,12 @@ ez library qmd query 'vec: What should I pack for a trip?' -c library --no-reran
 
 These are upstream QMD commands, passed as literal argv with its native output and exit codes. Structured `vec:` queries with `--no-rerank` avoid the CPU expense of local query expansion/reranking. QMD `vsearch` also performs expansion. Run `qmd update`, then `qmd embed` when needed after file changes; intake does not schedule indexing. QMD models/indexes live separately from originals in the private volume. Retrieval is a snapshot; `library get` checks current bytes.
 
+## Browsable remote mirror
+
+Drive and GitHub persistence keep ordinary files at their original relative paths: PDFs, Markdown and zero-byte files can be browsed directly. No archive or base64 bundle substitutes for the current tree. GitHub does not represent empty directories. Provider revision history remains separate from the visible current files.
+
+Native provider uploads/updates or Git commits/pushes happen immediately after agent save batches. This is not a continuously running filesystem watcher. True unattended or bidirectional sync should reuse an established sync engine with a verified connection and conflict policy; the Library relay does not supply one.
+
 ## Backup after each save
 
 When the owner asks to enable Drive backup and sync, the onboarded agent copies the existing Library now and backs up subsequent saved originals and derived notes in their intake tasks. It preserves local primary storage and records the verified private destination. Daily schedules are not a substitute or an implicit default. Failed uploads remain pending and are reported separately from successful local saves. This guidance uses existing provider tools; it does not watch external filesystem writes.
