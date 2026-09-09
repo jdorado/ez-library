@@ -1,0 +1,89 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
+import { Readable } from 'node:stream';
+import { existsSync } from 'node:fs';
+import { put, organize, operation, hash } from '../src/store.mjs';
+import { syncAdopt, syncPlan, syncRun, syncStatus, syncPolicy } from '../src/sync.mjs';
+import { environment } from '../src/native.mjs';
+
+async function fixture(t) {
+  const base = await fs.realpath(await fs.mkdtemp(path.join(tmpdir(), 'library-sync-')));
+  t.after(() => fs.rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'state'), remote = path.join(base, 'external');
+  await fs.mkdir(remote); return { base, root, remote };
+}
+const save = (root, name, text) => put(root, name, Readable.from([text]), { key: hash(name), expected: 'new' });
+const nativeAvailable = existsSync('/usr/local/bin/rclone');
+
+test('organization preserves bytes/history and refuses stale or occupied paths', async t => {
+  const { root } = await fixture(t);
+  const original = await save(root, 'inbox/a.md', 'An original note');
+  const request = { path: 'inbox/a.md', to: 'organized/a.md', expected: original.sha256, key: 'move-a' };
+  assert.equal((await organize(root, request)).state, 'moved');
+  assert.equal((await organize(root, request)).replay, true);
+  assert.equal((await operation(root, 'move-a')).state, 'moved');
+  await save(root, 'occupied.md', 'Do not replace');
+  await assert.rejects(organize(root, { ...request, path: request.to, to: 'occupied.md', key: 'occupied' }), { code: 'CONFLICT' });
+  await assert.rejects(organize(root, { path: request.to, expected: hash('stale'), key: 'stale' }), { code: 'CONFLICT' });
+  const remove = { path: request.to, expected: original.sha256, key: 'remove-a' };
+  assert.equal((await organize(root, remove)).state, 'removed');
+  assert.equal((await organize(root, remove)).replay, true);
+  assert.equal(await fs.readFile(path.join(root, 'history', original.sha256), 'utf8'), 'An original note');
+});
+
+test('sync is inert without binding; policy revisions and remote paths are guarded', async t => {
+  const { root } = await fixture(t);
+  assert.equal((await syncStatus(root)).config, null);
+  assert.equal((await syncRun(root)).state, 'unconfigured');
+  for (const remote of ['drive:', ':drive,token=secret:path', 'drive:../escape', root]) {
+    await assert.rejects(syncPlan(root, remote));
+  }
+  await assert.rejects(syncPolicy(root, { mode: 'two-way', expected: 'old' }), { code: 'CONFLICT' });
+  assert.equal(environment(root).TELEGRAM_BOT_TOKEN, undefined);
+  assert.equal(environment(root).NODE_OPTIONS, undefined);
+  assert.equal(environment(root).RCLONE_CONFIG, path.join(root, 'sync/rclone.conf'));
+});
+
+test('native adoption preserves a populated folder, empty files and directories; conflicts stop adoption', { skip: !nativeAvailable }, async t => {
+  const { root, remote } = await fixture(t);
+  await fs.mkdir(path.join(remote, 'empty-dir'));
+  await fs.writeFile(path.join(remote, 'existing.md'), 'Existing remote note');
+  await fs.writeFile(path.join(remote, 'empty.txt'), '');
+  await fs.writeFile(path.join(remote, '.private'), 'excluded');
+  const plan = await syncPlan(root, remote);
+  assert.equal(plan.remoteFiles, 2); assert.equal(plan.ready, true);
+  const adopted = await syncAdopt(root, remote);
+  assert.equal(adopted.config.mode, 'two-way');
+  assert.equal(await fs.readFile(path.join(root, 'files/existing.md'), 'utf8'), 'Existing remote note');
+  assert.equal((await fs.stat(path.join(root, 'files/empty.txt'))).size, 0);
+  assert((await fs.stat(path.join(root, 'files/empty-dir'))).isDirectory());
+  assert(!existsSync(path.join(root, 'files/.private')));
+  await assert.rejects(syncAdopt(root, remote), { code: 'CONFLICT' });
+  const paused = await syncPolicy(root, { expected: adopted.revision, mode: 'paused', intervalSeconds: 30 });
+  assert.equal(paused.config.mode, 'paused');
+  assert.equal((await syncRun(root)).state, 'paused');
+  await assert.rejects(syncPolicy(root, { expected: adopted.revision, mode: 'two-way' }), { code: 'CONFLICT' });
+
+  const other = await fixture(t);
+  await fs.writeFile(path.join(other.remote, 'same.md'), 'remote');
+  await save(other.root, 'same.md', 'local');
+  assert.equal((await syncPlan(other.root, other.remote)).ready, false);
+  await assert.rejects(syncAdopt(other.root, other.remote), { code: 'CONFLICT' });
+  assert.equal(await fs.readFile(path.join(other.root, 'files/same.md'), 'utf8'), 'local');
+  assert.equal(await fs.readFile(path.join(other.remote, 'same.md'), 'utf8'), 'remote');
+});
+
+test('a deleted or replaced mapped root blocks transfers without recreating it', { skip: !nativeAvailable }, async t => {
+  const { root, remote } = await fixture(t);
+  await fs.writeFile(path.join(remote, 'kept.md'), 'Preserve me');
+  await syncAdopt(root, remote);
+  await fs.rename(remote, remote + '-deleted');
+  await assert.rejects(syncRun(root));
+  assert(!existsSync(remote));
+  await fs.mkdir(remote);
+  await assert.rejects(syncRun(root), { code: 'CONFLICT' });
+  assert.equal(await fs.readFile(path.join(root, 'files/kept.md'), 'utf8'), 'Preserve me');
+});

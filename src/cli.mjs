@@ -6,7 +6,9 @@ import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { constants } from 'node:fs';
-import { fail, rootDir, locked, settings, validateSettings, put, operation, list, safePath, digest, jsonBytes, defaults } from './store.mjs';
+import { fail, rootDir, locked, settings, validateSettings, put, operation, organize, list, safePath, digest, jsonBytes, defaults } from './store.mjs';
+import { syncPlan, syncAdopt, syncPolicy, syncRun, syncStatus } from './sync.mjs';
+import { rclone } from './native.mjs';
 
 const version = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url))).version;
 const emit = data => process.stdout.write(JSON.stringify({ ok: true, data }) + '\n');
@@ -21,14 +23,23 @@ Local library files, QMD retrieval, and persistence settings.
   pdf-text --path RELATIVE         Poppler text to stdout, page breaks retained
   list [--prefix TEXT] [--limit 100]
   operation --key KEY             Recover write outcome from current bytes
+  move --path SOURCE --to DEST --expected HASH --key KEY
+  remove --path SOURCE --expected HASH --key KEY  Retain recoverable original
   qmd ...                        Native QMD CLI with private index/cache
+  rclone ...                     Native connection CLI; private config in /state/sync
+  sync-plan --remote REMOTE:PATH  Inspect an existing folder without changing it
+  sync-adopt --remote REMOTE:PATH Import matching originals; enable two-way sync
+  sync-status                    Binding, last sync, extraction and embedding status
+  sync-run                       Reconcile now and refresh the index
+  sync-policy --expected HASH --mode paused|two-way [--interval 60]
 
 Local commands emit JSON (--json is also accepted); get --raw and qmd preserve
 native output. Files are limited to 512 MiB. Existing files require their current
 SHA-256. Stable operation keys cannot be reused for different writes.
 State: EZ_LIBRARY_STATE (absolute), default /state. Production uses the agent's
 registered Docker plugin. Credentials belong to provider tools, never settings.
-Persistence configuration does not upload, schedule, or verify cloud backups.
+Legacy persistence settings alone do not start sync. sync-adopt enables native
+bisync, checked every 60 seconds plus transfer/index time while the service runs.
 Exit: 0 success, 2 invalid input, 3 conflict/busy, 4 unavailable/uncertain.
 QMD returns its native exit code. See the packaged library skill for onboarding.
 `;
@@ -71,10 +82,28 @@ export async function main(argv = process.argv.slice(2)) {
     const [command, ...rest] = argv;
     const root = process.env.EZ_LIBRARY_STATE || '/state';
     if (command === 'qmd') { process.exitCode = await runQmd(root, rest); return; }
+    if (command === 'rclone') {
+      process.exitCode = await locked(root, async root => {
+        await fs.mkdir(path.join(root, 'sync'), { recursive: true, mode: 0o700 });
+        return (await rclone(root, rest, { inherit: true })).code;
+      }); return;
+    }
     const allowed = { doctor: [], settings: [], configure: ['expected', 'key'], put: ['path', 'expected', 'key'],
-      get: ['path', 'raw'], 'pdf-text': ['path'], list: ['prefix', 'limit'], operation: ['key'] }[command];
+      get: ['path', 'raw'], 'pdf-text': ['path'], list: ['prefix', 'limit'], operation: ['key'],
+      'sync-plan': ['remote'], 'sync-adopt': ['remote'], 'sync-status': [], 'sync-run': [],
+      move: ['path', 'to', 'expected', 'key'], remove: ['path', 'expected', 'key'],
+      'sync-policy': ['expected', 'mode', 'interval'] }[command];
     if (!allowed) fail('INVALID', 'Unknown command; use --help');
     const { values: opts } = parseArgs({ args: rest, options: Object.fromEntries([...allowed, 'json'].map(k => [k, { type: ['json', 'raw'].includes(k) ? 'boolean' : 'string' }])), strict: true });
+    if (command === 'sync-plan') { emit(await syncPlan(root, opts.remote)); return; }
+    if (command === 'sync-adopt') { emit(await syncAdopt(root, opts.remote)); return; }
+    if (command === 'sync-status') { emit(await syncStatus(root)); return; }
+    if (command === 'sync-run') { emit(await syncRun(root)); return; }
+    if (command === 'sync-policy') { emit(await syncPolicy(root, { expected: opts.expected, mode: opts.mode, intervalSeconds: opts.interval === undefined ? 60 : Number(opts.interval) })); return; }
+    if (['move', 'remove'].includes(command)) {
+      if (!opts.path || (command === 'move' && !opts.to)) fail('INVALID', 'Supply source and, for move, destination paths');
+      emit(await organize(root, opts)); return;
+    }
     if (command === 'configure') {
       const data = jsonBytes(await readSettingsInput());
       emit(await put(root, 'settings.json', Readable.from([data]), { key: opts.key, expected: opts.expected, kind: 'settings', maxBytes: 65536 })); return;
@@ -90,6 +119,7 @@ export async function main(argv = process.argv.slice(2)) {
       let qmdAvailable = true;
       try { import.meta.resolve('@tobilu/qmd'); } catch { qmdAvailable = false; }
       emit({ version, state: root, configured, qmdAvailable, storageMode: value.settings.storage.mode,
+        folderSync: await syncStatus(root),
         cloudPersistence: value.settings.storage.mode === 'local' ? 'disabled' : 'configured-not-verified',
         backup: value.settings.backup.mode === 'off' ? 'disabled' : 'configured-not-verified' }); return;
     }

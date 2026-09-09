@@ -2,7 +2,9 @@
 
 A separate Dockerized plugin for an agent's files and QMD search. Preserve original Markdown and attachments, retrieve relevant notes, and record where the agent should persist them using its existing provider tools.
 
-**Unreleased beta.** Local file operations and persistence settings are implemented. QMD is the search engine. This package does not upload to GitHub/Drive, run background synchronization, OCR media, or verify cloud backups. Those operations remain with the agent and its selected tools. No changes to the relay are required.
+**Unreleased beta.** QMD supplies search; native rclone bisync supplies explicitly enabled folder synchronization. Existing-folder adoption, automatic indexing and guarded organization are implemented. Native Drive/Dropbox connections require separate authorization and remote QA. GitHub/Hybrid remain agent-owned persistence policies, not automatic sync backends. OCR and versioned cloud backup/restore are not supplied. No relay changes are required.
+
+See [existing-folder setup and sync policy](docs/folder-sync.md).
 
 ## Requirements and installation
 
@@ -54,13 +56,13 @@ ez library qmd embed --no-gpu --max-docs-per-batch 8
 ez library qmd query 'vec: What should I pack for a trip?' -c library --no-rerank --json -n 5
 ```
 
-These are upstream QMD commands, passed as literal argv with its native output and exit codes. Structured `vec:` queries with `--no-rerank` avoid the CPU expense of local query expansion/reranking. QMD `vsearch` also performs expansion. Run `qmd update`, then `qmd embed` when needed after file changes; intake does not schedule indexing. QMD models/indexes live separately from originals in the private volume. Retrieval is a snapshot; `library get` checks current bytes.
+These are upstream QMD commands, passed as literal argv with its native output and exit codes. Structured `vec:` queries with `--no-rerank` avoid the CPU expense of local query expansion/reranking. QMD `vsearch` also performs expansion. Run `qmd update`, then `qmd embed` when needed after file changes; unbound local intake does not schedule indexing. An adopted folder enables automatic refresh after sync. QMD models/indexes live separately from originals in the private volume. Retrieval is a snapshot; `library get` checks current bytes.
 
 ## Browsable remote mirror
 
 Drive and GitHub persistence keep ordinary files at their original relative paths: PDFs, Markdown and zero-byte files can be browsed directly. No archive or base64 bundle substitutes for the current tree. GitHub does not represent empty directories. Provider revision history remains separate from the visible current files.
 
-Native provider uploads/updates or Git commits/pushes happen immediately after agent save batches. This is not a continuously running filesystem watcher. True unattended or bidirectional sync should reuse an established sync engine with a verified connection and conflict policy; the Library relay does not supply one.
+For an adopted folder, the resident service runs native bisync and indexes changes. The default interval is 60 seconds after each completed cycle, so transfers and embedding add latency. For legacy provider-only settings, uploads or Git commits/pushes remain agent-owned after each save batch. Never run both writers against the same destination.
 
 ## Backup after each save
 
@@ -74,15 +76,15 @@ When the owner asks to enable Drive backup and sync, the onboarded agent copies 
 
 `put --expected new` creates a file. Replacements require the current SHA-256 from `get`, a new operation key, and new bytes on stdin. A matching retry returns the recorded outcome only if current bytes still match. Reusing a key with different content or preconditions fails. `operation --key KEY` reports `stored`, `changed`, or `missing` from actual bytes, including after interruption. Previous content is retained in `/state/history/<sha256>`; an operator can export it from the private volume and restore through a new guarded `put`.
 
-Maximum intake is 512 MiB per file. Hidden paths, traversal, symlinks and special files are unsupported. There is no rename/delete API. `list --prefix notes/ --limit 100` is bounded and reports truncation; it is not a full backup manifest. All local commands emit JSON except `get --raw`; errors use stderr. Exit codes: 2 invalid input, 3 conflict/busy, 4 unavailable/uncertain. QMD preserves its native codes.
+Maximum intake is 512 MiB per file. Hidden paths, traversal, symlinks and special files are unsupported. `move --path SOURCE --to DEST --expected HASH --key KEY` and `remove --path SOURCE --expected HASH --key KEY` preserve recovery bytes and reject stale revisions. Their operation receipts live in the plugin volume, so child tasks do not need to edit a parent workspace manifest. `list --prefix notes/ --limit 100` is bounded and reports truncation; it is not a full backup manifest. All local commands emit JSON except `get --raw`; errors use stderr. Exit codes: 2 invalid input, 3 conflict/busy, 4 unavailable/uncertain. QMD preserves its native codes.
 
 ## State, lifecycle and limits
 
-The named `data` volume contains `/state/files`, `settings.json`, `operations`, `history`, `tmp`, and `qmd`. Private state is not encrypted at rest. No provider secrets belong there. The service is a small resident lifecycle target; commands run through the manager's isolated client containers. Its health check proves the CLI loads, not search readiness or persistence.
+The named `data` volume contains `/state/files`, `settings.json`, `operations`, `history`, `tmp`, and `qmd`. Private state is not encrypted at rest. Native rclone credentials belong only in `/state/sync/rclone.conf`, outside mirrored files and settings. Adopted-folder state and receipts live under `/state/sync`; extracted PDF text lives under `/state/index-text`. The service supervises enabled native sync; commands run through the manager's isolated client containers. Its health check proves the CLI loads, not search readiness or persistence.
 
 Stop the plugin before an operator takes a volume snapshot using an existing backup tool. Preserve originals, settings, receipts and history together. QMD indexes/models are rebuildable. Uninstall removes the deployment and registry binding but preserves volumes. Account revocation is a separate action in the provider's plugin/account. See [release and rollback practices](docs/releasing.md).
 
-An interrupted command may leave `/state/.writer-lock`, or QMD's own embed lock below `/state/qmd/cache/qmd`. Confirm no Library client/embedding command is active before removing only the stale lock. Never delete the index or originals as a lock workaround. Run `operation` to reconcile an interrupted file write. A concurrent non-plugin writer is unsupported.
+An interrupted command may leave `/state/.writer-lock`, or QMD's own embed lock below `/state/qmd/cache/qmd`. Confirm no Library client/embedding command is active before removing only the stale lock. Never delete the index or originals as a lock workaround. Run `operation` to reconcile an interrupted file write. Concurrent writes directly to `/state/files` are unsupported. Edit the mapped external folder instead, or use guarded Library commands.
 
 ## Development
 

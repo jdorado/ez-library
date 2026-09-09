@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-beta.5 — unreleased
+
+- Adopt an existing folder with native rclone bisync, persistent binding/receipts, conflicts preserved and deletion safeguards.
+- Supervise enabled sync every 60 seconds and refresh PDF extraction, QMD search and embeddings after changes.
+- Add revision-guarded move/remove operations for agent organization, with recovery bytes and task-accessible receipts.
+- Keep native connection consent explicit; GitHub/Hybrid automatic synchronization and OCR remain unsupported.
+
 ## 0.1.0-beta.4 — unreleased
 
 - Default remote persistence to browsable ordinary files and stable paths, never archive workarounds.
