@@ -1,0 +1,8 @@
+# Changelog
+
+## 0.1.0-beta.1 — unreleased
+
+- Introduce a separate Dockerized Library CLI and native QMD 2.8.3 command access.
+- Store files with revision preconditions, operation keys, exact readback and local previous revisions.
+- Add explicit Local, Drive, GitHub and Hybrid persistence settings, independently configured external backup intent.
+- Package agent instructions for provider-owned persistence. Remote transfers, background sync, OCR and cloud restore verification are not implemented by this plugin.

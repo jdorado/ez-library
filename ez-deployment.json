@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 2,
+  "services": {
+    "library": {
+      "buildTarget": "runtime",
+      "volumes": {
+        "data": "/state"
+      },
+      "healthcheck": [
+        "node",
+        "/app/bin/ez-library.mjs",
+        "--version"
+      ],
+      "memoryMiB": 4096
+    }
+  },
+  "commands": {
+    "library": {
+      "service": "library",
+      "argv": [
+        "node",
+        "/app/bin/ez-library.mjs"
+      ]
+    }
+  }
+}

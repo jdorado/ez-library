@@ -1,0 +1,6 @@
+node_modules/
+.state/
+.env*
+*.tgz
+*.log
+.DS_Store

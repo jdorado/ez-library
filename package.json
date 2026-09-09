@@ -1,0 +1,63 @@
+{
+  "name": "@jc_stack/ez-library",
+  "version": "0.1.0-beta.1",
+  "private": true,
+  "description": "Dockerized agent library files, QMD retrieval and explicit persistence settings",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.30.3",
+  "bin": {
+    "ez-library": "bin/ez-library.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "skills",
+    "docs",
+    "test",
+    "docker",
+    "scripts/release-check.mjs",
+    "ez-plugin.json",
+    "ez-deployment.json",
+    "Dockerfile",
+    ".dockerignore",
+    "README.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "verify": "node --check src/cli.mjs && node --check src/store.mjs && node --test test/*.test.mjs",
+    "release:check": "node scripts/release-check.mjs",
+    "smoke:docker": "node docker/smoke.mjs"
+  },
+  "dependencies": {
+    "@tobilu/qmd": "2.8.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "node-llama-cpp"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jdorado/ez-library.git"
+  },
+  "homepage": "https://github.com/jdorado/ez-library#readme",
+  "bugs": {
+    "url": "https://github.com/jdorado/ez-library/issues"
+  },
+  "ezRelease": {
+    "protocol": 1,
+    "kind": "plugin",
+    "stateSchema": 1,
+    "mainProtocol": 1
+  }
+}
