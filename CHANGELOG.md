@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-beta.8
+
+- Opt-in shared embedding worker, capped at half a CPU core, with private per-agent indexes.
+- Schema-3 manager support is required. Migration preserves the existing Library volume and compatible QMD vectors; deployment layout changes require explicit installation migration.
+
+
 ## 0.1.0-beta.6 — unreleased
 
 - Add native GitHub-only two-way sync, remote commit verification and automatic QMD/PDF refresh.
