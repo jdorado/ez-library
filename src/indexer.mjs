@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
-import { atomic, digest, hash, jsonBytes, safePath } from './store.mjs';
+import { atomic, digest, hash, jsonBytes, safePath, settings } from './store.mjs';
 import { native, qmd, succeeded } from './native.mjs';
 
 export async function inventory(directory, relative = '', { includeHidden = false } = {}) {
@@ -18,7 +18,8 @@ export async function inventory(directory, relative = '', { includeHidden = fals
 // Derived text is a rebuildable cache, outside the mirrored originals. Never
 // overwrite an owner's note to regenerate PDF extraction.
 export async function refreshIndex(root) {
-  const embed = process.env.EZ_LIBRARY_EMBED !== '0';
+  const configured = await settings(root);
+  const embed = process.env.EZ_LIBRARY_EMBED !== '0' && configured.settings.indexing?.mode !== 'keyword';
   const cache = path.join(root, 'index-text');
   await fs.mkdir(cache, { recursive: true, mode: 0o700 });
   if ((await fs.lstat(cache)).isSymbolicLink()) throw Error('Extraction cache cannot be a symlink');
@@ -26,7 +27,15 @@ export async function refreshIndex(root) {
   const fingerprint = hash(jsonBytes(files));
   const ledgerFile = path.join(root, 'sync/index.json');
   const before = await fs.readFile(ledgerFile, 'utf8').then(JSON.parse).catch(e => { if (e.code === 'ENOENT') return {}; throw e; });
-  if (before.fingerprint === fingerprint && (before.embedded || !embed)) return before;
+  if (before.fingerprint === fingerprint) {
+    if (embed && before.embedded) return before;
+    if (!embed) {
+      if (!before.embedded) return before;
+      const indexed = { ...before, embedded: false };
+      await atomic(ledgerFile, jsonBytes(indexed));
+      return indexed;
+    }
+  }
   const extracted = {}, pending = [];
   for (const file of files.filter(f => /\.pdf$/i.test(f.path))) {
     const target = await safePath(root, 'index-text/' + file.path + '.md', true);
