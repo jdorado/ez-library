@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add one-way GitHub text history after successful folder sync, preserving Drive as the editable workspace.
+
 - Add isolated named libraries, explicit command selection, source inventory and labelled cross-library QMD keyword search. Preserve existing state as default.
 
 ## 0.1.0-beta.6 — unreleased

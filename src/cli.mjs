@@ -10,6 +10,7 @@ import { fail, rootDir, locked, settings, validateSettings, put, operation, orga
 import { syncPlan, syncAdopt, syncPolicy, syncRun, syncStatus } from './sync.mjs';
 import { rclone } from './native.mjs';
 import { addLibrary, selectLibrary, sources, searchLibraries } from './libraries.mjs';
+import { mirrorAdopt, mirrorStatus, mirrorPolicy } from './git-mirror.mjs';
 import { gitKey, gitAdopt, git } from './git-sync.mjs';
 
 const version = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url))).version;
@@ -39,6 +40,9 @@ Local library files, QMD retrieval, and persistence settings.
   sync-status                    Binding, last sync, extraction and embedding status
   sync-run                       Reconcile now and refresh the index
   sync-policy --expected HASH --mode paused|two-way [--interval 60]
+  git-mirror-adopt --repository OWNER/REPO [--branch main] [--extensions .md,.txt]
+  git-mirror-status              Text-only GitHub history destination and revision
+  git-mirror-policy --expected HASH --mode paused|one-way
   git-key --repository OWNER/REPO  Create a repository key; return public key only
   git-adopt --repository OWNER/REPO [--branch main] Import and enable native Git sync
   git ...                        Native Git in the bound Library working tree
@@ -145,11 +149,15 @@ export async function main(argv = process.argv.slice(2)) {
       get: ['path', 'raw'], 'pdf-text': ['path'], list: ['prefix', 'limit'], operation: ['key'],
       'sync-plan': ['remote'], 'sync-adopt': ['remote'], 'sync-status': [], 'sync-run': [],
       move: ['path', 'to', 'expected', 'key'], remove: ['path', 'expected', 'key'],
+      'git-mirror-adopt': ['repository', 'branch', 'extensions'], 'git-mirror-status': [], 'git-mirror-policy': ['expected', 'mode'],
       'git-key': ['repository'], 'git-adopt': ['repository', 'branch'],
       'sync-policy': ['expected', 'mode', 'interval'] }[command];
     if (!allowed) fail('INVALID', 'Unknown command; use --help');
     const { values: opts } = parseArgs({ args: rest, options: Object.fromEntries([...allowed, 'json'].map(k => [k, { type: ['json', 'raw'].includes(k) ? 'boolean' : 'string' }])), strict: true });
     if (command === 'sync-plan') { emit(await syncPlan(root, opts.remote, base)); return; }
+    if (command === 'git-mirror-adopt') { emit(await mirrorAdopt(root, opts.repository, opts.branch, opts.extensions, base)); return; }
+    if (command === 'git-mirror-status') { emit(await mirrorStatus(root)); return; }
+    if (command === 'git-mirror-policy') { emit(await mirrorPolicy(root, opts.expected, opts.mode)); return; }
     if (command === 'git-key') { emit(await gitKey(root, opts.repository)); return; }
     if (command === 'git-adopt') { emit(await gitAdopt(root, opts.repository, opts.branch)); return; }
     if (command === 'sync-adopt') { emit(await syncAdopt(root, opts.remote, base)); return; }

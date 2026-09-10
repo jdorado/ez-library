@@ -15,6 +15,9 @@ local state. Add `--library work` to onboarding and file commands. Once multiple
 libraries exist, selection is required. `search 'query' --all` returns labelled
 QMD results. Existing files remain in `default` without migration.
 
+For Drive/Obsidian workspaces, add [GitHub text history](docs/text-mirror.md)
+without moving attachments or changing the working folder.
+
 ## Requirements and installation
 
 Use Node 22+, Docker with Compose, and an initialized agent-bound Ez plugin manager supporting deployment schema 2. The runtime has a 4 GiB memory ceiling; semantic models additionally need roughly 2.1 GB disk and CPU time. GitHub/Drive are optional, separately authorized connections.

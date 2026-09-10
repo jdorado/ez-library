@@ -5,6 +5,16 @@ description: Save owner attachments by default, extract PDF text, and store and 
 
 Use the owning agent's registered `ez library` command. Read `--help` and `doctor` to inspect the installed version, private state and configuration. Installation is usable only after a real local file can be saved and retrieved, and a QMD search finds its source. The service health check alone is insufficient.
 
+## Drive workspace and GitHub text history
+
+For a PC/Obsidian workspace that the agent also edits, keep Drive as the complete
+bidirectional folder and add a one-way GitHub text mirror. Follow
+[text mirror setup](../../docs/text-mirror.md). Preserve folder paths and repair
+relative attachment links during organization. Use `sync-run --library NAME`
+after each completed batch and verify Drive transfer plus `status.textMirror`
+remote commit readback. Do not claim versioning from a local commit. Direct
+GitHub edits require reconciliation; they do not flow back to the workspace.
+
 ## Select the library before acting
 
 Read `ez library sources` at the start of each Library task; do not assume a

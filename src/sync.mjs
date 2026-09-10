@@ -3,6 +3,7 @@ import path from 'node:path';
 import { atomic, fail, hash, jsonBytes, locked, safePath } from './store.mjs';
 import { inventory, refreshIndex } from './indexer.mjs';
 import { rclone, succeeded } from './native.mjs';
+import { mirrorTransfer, mirrorStatus } from './git-mirror.mjs';
 import { gitTransfer } from './git-sync.mjs';
 
 const marker = 'LIBRARY_SYNC_ACCESS';
@@ -63,6 +64,7 @@ export async function syncStatus(root) {
   const config = await readJSON(location(root));
   return { config, revision: config ? hash(jsonBytes(config)) : null,
     status: await readJSON(path.join(root, 'sync/status.json')),
+    textMirror: await mirrorStatus(root),
     index: await readJSON(path.join(root, 'sync/index.json')) };
 }
 
@@ -146,6 +148,8 @@ export async function syncRun(root, stateRoot = root) {
       }
       status = { ...status, state: 'indexing', syncedAt: new Date().toISOString() };
       await atomic(path.join(root, 'sync/status.json'), jsonBytes(status));
+      try { status.textMirror = await mirrorTransfer(root); }
+      catch (error) { status.textMirror = { state: 'pending', error: { code: error.code || 'UNAVAILABLE', message: error.message } }; }
       const index = await refreshIndex(root);
       status = { ...status, state: index.conflicts?.length ? 'synced-with-conflicts' : index.pending.length ? 'indexed-with-pending-extraction' : 'synced-and-indexed', indexedAt: index.indexedAt, embedded: index.embedded };
     } catch (error) {
@@ -154,6 +158,7 @@ export async function syncRun(root, stateRoot = root) {
       throw error;
     }
     await atomic(path.join(root, 'sync/status.json'), jsonBytes(status));
+    if (status.textMirror?.state === 'pending') fail('UNAVAILABLE', 'Folder synced; GitHub text mirror pending: ' + status.textMirror.error.message);
     return status;
   });
 }
