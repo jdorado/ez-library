@@ -12,21 +12,20 @@ Use CONTRIBUTING.md for every change. The source repository is public and regist
 ## Shared beta publisher
 
 `.github/workflows/publish-beta.yml` is a generated caller of the single
-[core publisher](https://github.com/jdorado/ez-agents/blob/5a694a0b600e52263c1b7a2783950274b2f28e27/docs/trusted-publishing.md).
-Merge the reviewed core setup in [core PR #41](https://github.com/jdorado/ez-agents/pull/41)
-before this caller. Both the reusable workflow reference and `publisher-sha`
+[core publisher](https://github.com/jdorado/ez-agents/blob/f5176f4eddbded50abf0d1bed48431c43a39bf1c/docs/trusted-publishing.md).
+The reviewed latest-tag policy is merged in [core PR #44](https://github.com/jdorado/ez-agents/pull/44). Both the reusable workflow reference and `publisher-sha`
 pin the same immutable core commit. To regenerate from that reviewed core checkout:
 
 ```sh
 node scripts/generate-publish-caller.mjs jdorado/ez-library \
-  @jc_stack/ez-library 5a694a0b600e52263c1b7a2783950274b2f28e27 \
+  @jc_stack/ez-library f5176f4eddbded50abf0d1bed48431c43a39bf1c \
   '["verify (22)","verify (24)","docker"]' > publish-beta.yml
 ```
 
 Review the output before replacing this repository's caller. These are the
 actual `.github/workflows/ci.yml` check names; update the caller through review
 when required CI changes. It dispatches only on current `main`, runs on
-GitHub-hosted Actions, and supports only `X.Y.Z-beta.N` on the npm `beta` tag.
+GitHub-hosted Actions, and supports only `X.Y.Z-beta.N` on the npm `latest` tag.
 The Mac performs independent review and isolated artifact tests. No test job
 receives npm credentials and no package code runs in the publishing jobs.
 
@@ -57,10 +56,17 @@ Dispatch the caller with the numeric `release-id`, `version`, `source-sha` and
 `artifact-sha256`; do not rebuild the candidate on Actions.
 
 Preserve the Actions run and registry receipt, verify the downloaded tarball
-hash and beta dist-tag, and confirm `latest` stayed unchanged. On uncertain
+hash and confirm `latest` identifies the approved version. On uncertain
 publication inspect registry state before retrying; never overwrite a version
 or silently repair tags. Complete and read back the GitHub prerelease only after
 verified npm delivery, then verify clean-host installation/runtime as required
 above. A merged caller, catalog entry or successful login proves no release.
 
 Retain the worktree while review/QA is open. Back up the private data volume before upgrades. Schema 1 uses ordinary files plus JSON settings/operation receipts. No migration is currently needed; reject future unknown schemas. Roll back package code with the preserved compatible volume; do not delete data to solve installation or lock problems. A future state-breaking release requires an explicit migration and restore plan.
+
+Approved beta publication updates latest automatically through the shared OIDC
+publisher. No second tag write or local login is needed for enrolled packages.
+The legacy beta tag is not advanced. Versions/GitHub releases remain prereleases;
+stable-only deployment policies remain unchanged. Older Ez updaters need an
+exact-version core update containing latest-aware discovery. This policy change
+does not republish existing versions; prepare a new version for changed metadata.

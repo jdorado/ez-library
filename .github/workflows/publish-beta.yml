@@ -29,10 +29,10 @@ jobs:
       actions: read
       pull-requests: read
       id-token: write
-    uses: jdorado/ez-agents/.github/workflows/npm-beta-shared.yml@5a694a0b600e52263c1b7a2783950274b2f28e27
+    uses: jdorado/ez-agents/.github/workflows/npm-beta-shared.yml@f5176f4eddbded50abf0d1bed48431c43a39bf1c
     with:
       package: '@jc_stack/ez-library'
-      publisher-sha: '5a694a0b600e52263c1b7a2783950274b2f28e27'
+      publisher-sha: 'f5176f4eddbded50abf0d1bed48431c43a39bf1c'
       required-checks: '["verify (22)","verify (24)","docker"]'
       release-id: ${{ inputs.release-id }}
       version: ${{ inputs.version }}
