@@ -160,7 +160,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (command === 'git-mirror-status') { emit(await mirrorStatus(root)); return; }
     if (command === 'git-mirror-policy') { emit(await mirrorPolicy(root, opts.expected, opts.mode)); return; }
     if (command === 'git-key') { emit(await gitKey(root, opts.repository)); return; }
-    if (command === 'git-adopt') { emit(await gitAdopt(root, opts.repository, opts.branch)); return; }
+    if (command === 'git-adopt') { emit(await gitAdopt(root, opts.repository, opts.branch, base)); return; }
     if (command === 'sync-adopt') { emit(await syncAdopt(root, opts.remote, base)); return; }
     if (command === 'sync-status') { emit(await syncStatus(root)); return; }
     if (command === 'sync-run') { emit(await syncRun(root, base)); return; }

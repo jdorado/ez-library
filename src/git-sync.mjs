@@ -66,11 +66,14 @@ async function checkPolicy(root, repository, branch) {
   if (storage.mode === 'github' && (storage.github.repository !== repository || storage.github.branch !== branch)) fail('CONFLICT', 'Git binding must match configured repository and branch');
 }
 
-export async function gitAdopt(root, repository, branch = 'main') {
+export async function gitAdopt(root, repository, branch = 'main', stateRoot = root) {
   const remote = repositoryURL(repository);
   return locked(root, async root => {
     await checkPolicy(root, repository, branch);
-    if (path.isAbsolute(remote) && (remote === root || remote.startsWith(root + '/') || root.startsWith(remote + '/'))) fail('UNSAFE_PATH', 'Git source must be outside Library state');
+    if (path.isAbsolute(remote)) {
+      const real = await fs.realpath(remote), base = await fs.realpath(stateRoot);
+      if (real !== remote || real === base || real.startsWith(base + '/') || base.startsWith(real + '/')) fail('UNSAFE_PATH', 'Git source must be outside Library state');
+    }
     await fs.mkdir(path.join(root, 'sync'), { recursive: true, mode: 0o700 });
     const binding = await safePath(root, 'sync/config.json');
     try { await fs.access(binding); fail('CONFLICT', 'A sync binding already exists'); } catch (e) { if (e.code !== 'ENOENT') throw e; }

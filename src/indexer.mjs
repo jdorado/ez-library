@@ -75,6 +75,8 @@ export async function refreshIndex(root) {
 
 export async function indexStatus(root) {
   const before = await fs.readFile(path.join(root, 'sync/index.json'), 'utf8').then(JSON.parse).catch(e => { if (e.code === 'ENOENT') return null; throw e; });
+  const configured = await settings(root);
+  if (process.env.EZ_LIBRARY_EMBED === '0' || !process.env.EZ_LIBRARY_EMBED_SOCKET || configured.settings.indexing?.mode === 'keyword') return { state: 'off', indexedAt: before?.indexedAt || null };
   if (!before) return { state: 'pending', indexedAt: null };
   const fingerprint = hash(jsonBytes(await inventory(path.join(root, 'files'))));
   return { state: fingerprint === before.fingerprint ? before.embeddingState : 'pending', indexedAt: before.indexedAt };

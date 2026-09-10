@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
 
-test('per-library indexing policy controls native QMD embedding without changing legacy default', () => {
+test('per-library indexing policy controls native QMD embedding with explicit shared-worker enablement', () => {
   execFileSync(process.execPath, ['--experimental-test-module-mocks', '--input-type=module', '-e', `
     import { mock } from 'node:test';
     import assert from 'node:assert/strict';
@@ -13,7 +13,8 @@ test('per-library indexing policy controls native QMD embedding without changing
     mock.module('./src/native.mjs', { namedExports: { ...native,
       qmd: async (_, args) => { calls.push(args); return { code: 0, stdout: args[0] === 'collection' && args[1] === 'list' ? '' : '', stderr: '' }; }
     } });
-    const { refreshIndex } = await import('./src/indexer.mjs');
+    const { refreshIndex, indexStatus } = await import('./src/indexer.mjs');
+    process.env.EZ_LIBRARY_EMBED_SOCKET = '/synthetic/worker.sock';
     const base = await fs.realpath(await fs.mkdtemp(path.join(tmpdir(), 'library-index-policy-')));
     try {
       async function run(name, indexing, globalEmbed = true) {
@@ -38,6 +39,7 @@ test('per-library indexing policy controls native QMD embedding without changing
 
       const semanticRoot = path.join(base, 'semantic');
       await fs.writeFile(path.join(semanticRoot, 'settings.json'), JSON.stringify({ schemaVersion: 1, storage: { mode: 'local' }, backup: { mode: 'off' }, indexing: { mode: 'keyword' } }));
+      assert.equal((await indexStatus(semanticRoot)).state, 'off');
       let start = calls.length;
       const changedToKeyword = await refreshIndex(semanticRoot);
       assert.equal(changedToKeyword.embedded, false);
@@ -57,6 +59,12 @@ test('per-library indexing policy controls native QMD embedding without changing
       assert.equal(legacy.result.embedded, true);
       assert(legacy.calls.some(args => args[0] === 'embed'));
 
+      delete process.env.EZ_LIBRARY_EMBED_SOCKET;
+      assert.equal((await indexStatus(semanticRoot)).state, 'off');
+      const defaultOff = await run('default-off');
+      assert.equal(defaultOff.result.embedded, false);
+      assert.equal(defaultOff.calls.some(args => args[0] === 'embed'), false);
+      process.env.EZ_LIBRARY_EMBED_SOCKET = '/synthetic/worker.sock';
       const globallyDisabled = await run('global-off', { mode: 'semantic' }, false);
       assert.equal(globallyDisabled.result.embedded, false);
       assert.equal(globallyDisabled.calls.some(args => args[0] === 'embed'), false);
