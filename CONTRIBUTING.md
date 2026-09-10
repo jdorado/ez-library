@@ -2,16 +2,17 @@
 
 ## Agent-owned shipping
 
-The agent owns implementation, proportional tests, independent review, repairs,
-package verification and release preparation. Once ready, proactively present
-one concise merge/release confirmation only for missing authority, naming the
-prepared packages, versions, channel, checks and material limits. Reuse valid
-evidence and existing task or explicit standing authorization; batch dependent
-packages. Do not leave ready drafts for the maintainer to discover or ask them
-to operate engineering tools. After approval, complete authorized shipping and
-registry/artifact/runtime readback. Merge-only approval is not publication or
-permission to change private-package visibility. Escalate only product choices,
-missing credentials/2FA, unrepairable gates or material scope changes.
+The maintainer's request authorizes the requested work and its normal
+implementation steps; never ask for approval of the same work again. The agent
+owns implementation, proportional tests, independent review, repairs, package
+verification and release preparation. Once gates pass, carry out the requested
+merge/release and verify registry, artifact and runtime readback. Report versions,
+channel, checks and material limits; reuse valid evidence and batch dependent
+packages. Do not ask the maintainer to operate engineering tools. Merge-only
+requests do not imply publication or private-package visibility changes; release
+requests already authorize release. If shipping was not requested, report
+readiness without publishing. Escalate only an unavoidable external requirement,
+unrepairable gate, product decision or material scope change.
 
 ## Contribution checks
 
