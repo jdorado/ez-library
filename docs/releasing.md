@@ -44,7 +44,9 @@ Once the package exists, enroll `@jc_stack/ez-library` against owner `jdorado`,
 repository `ez-library`, and caller filename `publish-beta.yml`, enabling direct
 publication. npm checks the calling workflow identity for reusable workflows.
 This caller uses no environment; if npm trust specifies one, review a matching
-shared-workflow change first. Verify trust in npm settings or `npm trust list`.
+shared-workflow change first. Verify trust in the npm package's Trusted
+Publishers settings; local package metadata and npm login state do not prove
+that enrollment.
 Do not add tokens, `NODE_AUTH_TOKEN`, or private npm profiles to Actions.
 
 For subsequent betas, follow the pinned core publishing guide: after all release
