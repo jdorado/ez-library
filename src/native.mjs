@@ -9,9 +9,10 @@ export function environment(root) {
     QMD_CONFIG_DIR: path.join(root, 'qmd/config/qmd'), LANG: 'C.UTF-8',
     RCLONE_CONFIG: path.join(root, 'sync/rclone.conf') };
 }
-export function native(root, executable, args, { inherit = false } = {}) {
+export function native(root, executable, args, { inherit = false, env = {}, input } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { cwd: root, env: environment(root), stdio: inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(executable, args, { cwd: root, env: { ...environment(root), ...env }, stdio: inherit ? 'inherit' : [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
+    if (!inherit && input !== undefined) { child.stdin.on('error', () => {}); child.stdin.end(input); }
     let out = '', err = '', bytes = 0;
     const collect = (chunk, stderr) => {
       bytes += chunk.length;

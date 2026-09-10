@@ -2,9 +2,9 @@
 
 A separate Dockerized plugin for an agent's files and QMD search. Preserve original Markdown and attachments, retrieve relevant notes, and record where the agent should persist them using its existing provider tools.
 
-**Unreleased beta.** QMD supplies search; native rclone bisync supplies explicitly enabled folder synchronization. Existing-folder adoption, automatic indexing and guarded organization are implemented. Native Drive/Dropbox connections require separate authorization and remote QA. GitHub/Hybrid remain agent-owned persistence policies, not automatic sync backends. OCR and versioned cloud backup/restore are not supplied. No relay changes are required.
+**Unreleased beta.** QMD supplies search; native rclone bisync supplies explicitly enabled folder synchronization. Existing-folder adoption, automatic indexing and guarded organization are implemented. Native Drive/Dropbox connections require separate authorization and remote QA. GitHub-only sync uses native Git and a repository-specific deploy key registered through the existing GitHub plugin. Hybrid remains an agent-owned persistence policy, not an automatic sync backend. OCR and versioned cloud backup/restore are not supplied. No relay changes are required.
 
-See [existing-folder setup and sync policy](docs/folder-sync.md).
+See [existing-folder setup and sync policy](docs/folder-sync.md) and [GitHub-only two-way sync](docs/github-sync.md).
 
 ## Requirements and installation
 
