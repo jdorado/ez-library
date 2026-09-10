@@ -18,6 +18,7 @@ export async function inventory(directory, relative = '', { includeHidden = fals
 // Derived text is a rebuildable cache, outside the mirrored originals. Never
 // overwrite an owner's note to regenerate PDF extraction.
 export async function refreshIndex(root) {
+  const embed = process.env.EZ_LIBRARY_EMBED !== '0';
   const cache = path.join(root, 'index-text');
   await fs.mkdir(cache, { recursive: true, mode: 0o700 });
   if ((await fs.lstat(cache)).isSymbolicLink()) throw Error('Extraction cache cannot be a symlink');
@@ -25,7 +26,7 @@ export async function refreshIndex(root) {
   const fingerprint = hash(jsonBytes(files));
   const ledgerFile = path.join(root, 'sync/index.json');
   const before = await fs.readFile(ledgerFile, 'utf8').then(JSON.parse).catch(e => { if (e.code === 'ENOENT') return {}; throw e; });
-  if (before.fingerprint === fingerprint && before.embedded) return before;
+  if (before.fingerprint === fingerprint && (before.embedded || !embed)) return before;
   const extracted = {}, pending = [];
   for (const file of files.filter(f => /\.pdf$/i.test(f.path))) {
     const target = await safePath(root, 'index-text/' + file.path + '.md', true);
@@ -52,6 +53,7 @@ export async function refreshIndex(root) {
   const conflicts = files.filter(f => /\.conflict-(local|remote)/.test(f.path)).map(f => f.path);
   const indexed = { fingerprint, extracted, pending, conflicts, indexedAt: new Date().toISOString(), embedded: false };
   await atomic(ledgerFile, jsonBytes(indexed));
+  if (!embed) return indexed;
   succeeded(await qmd(root, ['embed', '--no-gpu', '--max-docs-per-batch', '8']), 'QMD embed');
   indexed.embedded = true;
   await atomic(ledgerFile, jsonBytes(indexed));
