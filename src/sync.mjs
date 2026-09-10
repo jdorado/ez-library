@@ -43,8 +43,16 @@ async function remoteIdentity(root, remote, stateRoot = root) {
   const profile = JSON.parse(succeeded(await rclone(root, ['config', 'dump']), 'Native connection inspection'))[name];
   if (!profile || !['drive', 'dropbox'].includes(profile.type)) fail('INVALID', 'This binding supports native Drive or Dropbox profiles');
   if (profile.root_folder_id || profile.trashed_only === 'true' || profile.team_drive) fail('INVALID', 'Use an account-root profile and the visible folder path; rooted/shared-drive profiles require separate validation');
-  const stat = JSON.parse(succeeded(await rclone(root, ['lsjson', remote, '--stat', ...common]), 'Folder identity'));
-  if (!stat.IsDir || !stat.ID) fail('UNAVAILABLE', 'Provider did not return a folder identity');
+  // A backend-root stat can be synthetic and omit its ID (notably Drive).
+  // Resolve every component from its parent, also rejecting ambiguous ancestors.
+  let parent = name + ':', stat;
+  for (const part of remote.slice(parent.length).split('/')) {
+    const entries = JSON.parse(succeeded(await rclone(root, ['lsjson', parent, '--dirs-only', ...common]), 'Folder identity'));
+    const matches = entries.filter(entry => entry.IsDir && entry.Path === part);
+    if (matches.length !== 1 || !matches[0].ID) fail('CONFLICT', 'Mapped folder is missing, ambiguous, or has no provider identity');
+    stat = matches[0];
+    parent += (parent.endsWith(':') ? '' : '/') + part;
+  }
   return `${profile.type}:${stat.ID}`;
 }
 
