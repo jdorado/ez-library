@@ -5,6 +5,11 @@
 - Opt-in shared embedding worker, capped at half a CPU core, with private per-agent indexes.
 - Schema-3 manager support is required. Migration preserves the existing Library volume and compatible QMD vectors; deployment layout changes require explicit installation migration.
 
+## Unreleased
+
+- Add one-way GitHub text history after successful folder sync, preserving Drive as the editable workspace.
+
+- Add isolated named libraries, explicit command selection, source inventory and labelled cross-library QMD keyword search. Preserve existing state as default.
 
 ## 0.1.0-beta.6 — unreleased
 

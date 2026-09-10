@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "library",
-  "version": "0.1.0-beta.8",
+  "version": "0.1.0-beta.9",
   "description": "Dockerized agent library files, QMD retrieval and explicit persistence settings",
   "commands": {
     "library": {

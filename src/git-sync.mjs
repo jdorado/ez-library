@@ -34,7 +34,9 @@ export async function gitKey(root, repository) {
 
 export function git(root, config, args, options = {}) {
   const dir = privateDir(root, config.repository);
-  return native(root, '/usr/bin/git', ['-C', path.join(root, 'files'), '--git-dir=' + path.join(root, 'sync/git'), '--work-tree=' + path.join(root, 'files'),
+  const workTree = path.join(root, config.textMirror ? 'sync/text-mirror/files' : 'files');
+  const gitDir = path.join(root, config.textMirror ? 'sync/text-mirror/git' : 'sync/git');
+  return native(root, '/usr/bin/git', ['-C', workTree, '--git-dir=' + gitDir, '--work-tree=' + workTree,
     '-c', 'core.hooksPath=/dev/null', '-c', 'core.autocrlf=false', '-c', 'core.filemode=false',
     '-c', 'user.name=Ez Library', '-c', 'user.email=library@localhost', ...args], {
     ...options, env: { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0',
