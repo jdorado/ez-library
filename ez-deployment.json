@@ -11,7 +11,8 @@
         "/app/bin/ez-library.mjs",
         "--version"
       ],
-      "memoryMiB": 4096
+      "memoryMiB": 4096,
+      "cpus": 2
     }
   },
   "commands": {

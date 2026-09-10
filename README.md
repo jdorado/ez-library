@@ -20,7 +20,7 @@ without moving attachments or changing the working folder.
 
 ## Requirements and installation
 
-Use Node 22+, Docker with Compose, and an initialized agent-bound Ez plugin manager supporting deployment schema 2. The runtime has a 4 GiB memory ceiling; semantic models additionally need roughly 2.1 GB disk and CPU time. GitHub/Drive are optional, separately authorized connections.
+Use Node 22+, Docker with Compose, and an initialized agent-bound Ez plugin manager supporting deployment schema 2 with service CPU limits. The runtime is capped at 2 CPU cores and 4 GiB memory; semantic models additionally need roughly 2.1 GB disk and CPU time. GitHub/Drive are optional, separately authorized connections.
 
 Install a reviewed checkout or extracted package using the agent's bound `ez`:
 
