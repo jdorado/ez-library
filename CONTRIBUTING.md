@@ -1,5 +1,20 @@
 # Contributing
 
+## Agent-owned shipping
+
+The agent owns implementation, proportional tests, independent review, repairs,
+package verification and release preparation. Once ready, proactively present
+one concise merge/release confirmation only for missing authority, naming the
+prepared packages, versions, channel, checks and material limits. Reuse valid
+evidence and existing task or explicit standing authorization; batch dependent
+packages. Do not leave ready drafts for the maintainer to discover or ask them
+to operate engineering tools. After approval, complete authorized shipping and
+registry/artifact/runtime readback. Merge-only approval is not publication or
+permission to change private-package visibility. Escalate only product choices,
+missing credentials/2FA, unrepairable gates or material scope changes.
+
+## Contribution checks
+
 Humans, LLM agents and maintainers use the same small-PR process. Read AGENTS.md
 and the relevant CLI help first. Open an issue for substantial scope changes;
 small fixes need no proposal. Internal plans and private QA belong outside this
