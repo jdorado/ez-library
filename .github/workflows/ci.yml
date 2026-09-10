@@ -39,3 +39,4 @@ jobs:
           docker build --target test -t ez-library-tests "$release_dir/package"
           docker build --target runtime -t ez-library:local "$release_dir/package"
           EZ_LIBRARY_IMAGE=ez-library:local node "$release_dir/package/docker/smoke.mjs"
+          EZ_LIBRARY_IMAGE=ez-library:local node "$release_dir/package/docker/text-mirror-smoke.mjs"

@@ -20,7 +20,7 @@ function ref(value) {
   if (typeof value !== 'string' || !/^[A-Za-z0-9_.:@/-]{1,160}$/.test(value)) fail('INVALID', 'Expected an opaque connection or destination reference, not credentials');
 }
 export function validateSettings(s) {
-  keys(s, ['schemaVersion', 'storage', 'backup']);
+  keys(s, ['schemaVersion', 'storage', 'backup', 'indexing']);
   if (s.schemaVersion !== 1) fail('INVALID', 'Unsupported settings schema');
   keys(s.storage, ['mode', 'github', 'drive', 'githubExtensions', 'maxGithubBytes']);
   const { mode, github, drive, githubExtensions, maxGithubBytes } = s.storage;
@@ -41,6 +41,10 @@ export function validateSettings(s) {
   if (!['off', 'external'].includes(s.backup.mode)) fail('INVALID', 'Backup is off or an explicit external tool destination');
   if (s.backup.mode === 'external') { ref(s.backup.connection); ref(s.backup.destination); }
   else if (s.backup.connection !== undefined || s.backup.destination !== undefined) fail('INVALID', 'Disabled backup cannot specify a destination');
+  if (s.indexing !== undefined) {
+    keys(s.indexing, ['mode']);
+    if (!['keyword', 'semantic'].includes(s.indexing.mode)) fail('INVALID', 'Indexing mode must be keyword or semantic');
+  }
   return s;
 }
 

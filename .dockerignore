@@ -8,3 +8,4 @@
 !LICENSE
 !THIRD_PARTY_NOTICES.md
 !docs/rclone-LICENSE.txt
+!patches/**

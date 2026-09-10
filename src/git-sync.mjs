@@ -34,7 +34,9 @@ export async function gitKey(root, repository) {
 
 export function git(root, config, args, options = {}) {
   const dir = privateDir(root, config.repository);
-  return native(root, '/usr/bin/git', ['-C', path.join(root, 'files'), '--git-dir=' + path.join(root, 'sync/git'), '--work-tree=' + path.join(root, 'files'),
+  const workTree = path.join(root, config.textMirror ? 'sync/text-mirror/files' : 'files');
+  const gitDir = path.join(root, config.textMirror ? 'sync/text-mirror/git' : 'sync/git');
+  return native(root, '/usr/bin/git', ['-C', workTree, '--git-dir=' + gitDir, '--work-tree=' + workTree,
     '-c', 'core.hooksPath=/dev/null', '-c', 'core.autocrlf=false', '-c', 'core.filemode=false',
     '-c', 'user.name=Ez Library', '-c', 'user.email=library@localhost', ...args], {
     ...options, env: { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0',
@@ -64,11 +66,14 @@ async function checkPolicy(root, repository, branch) {
   if (storage.mode === 'github' && (storage.github.repository !== repository || storage.github.branch !== branch)) fail('CONFLICT', 'Git binding must match configured repository and branch');
 }
 
-export async function gitAdopt(root, repository, branch = 'main') {
+export async function gitAdopt(root, repository, branch = 'main', stateRoot = root) {
   const remote = repositoryURL(repository);
   return locked(root, async root => {
     await checkPolicy(root, repository, branch);
-    if (path.isAbsolute(remote) && (remote === root || remote.startsWith(root + '/') || root.startsWith(remote + '/'))) fail('UNSAFE_PATH', 'Git source must be outside Library state');
+    if (path.isAbsolute(remote)) {
+      const real = await fs.realpath(remote), base = await fs.realpath(stateRoot);
+      if (real !== remote || real === base || real.startsWith(base + '/') || base.startsWith(real + '/')) fail('UNSAFE_PATH', 'Git source must be outside Library state');
+    }
     await fs.mkdir(path.join(root, 'sync'), { recursive: true, mode: 0o700 });
     const binding = await safePath(root, 'sync/config.json');
     try { await fs.access(binding); fail('CONFLICT', 'A sync binding already exists'); } catch (e) { if (e.code !== 'ENOENT') throw e; }

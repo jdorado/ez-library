@@ -89,10 +89,10 @@ container health check is not proof of freshness.
 
 `docker build --target test` exercises native adoption and missing-root guards
 with synthetic local folders. The runtime suite also verifies live polling,
-conflict preservation, rename/delete, PDF text replacement and semantic search:
+conflict preservation, rename/delete, PDF text replacement and keyword search. Supply `EZ_LIBRARY_EMBED_IPC` with a running test worker IPC volume to include semantic search:
 
 ```sh
-EZ_LIBRARY_IMAGE=ez-library:local EZ_LIBRARY_MODELS_DIR=/absolute/qmd/models node docker/sync-smoke.mjs
+EZ_LIBRARY_IMAGE=ez-library:local node docker/sync-smoke.mjs
 ```
 
 The suite has no cloud credentials or network. Native Drive/Dropbox consent,

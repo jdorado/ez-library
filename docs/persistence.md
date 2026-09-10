@@ -1,6 +1,6 @@
 # Persistence policy and provider handoff
 
-Settings are agent-readable policy. Applying them is agent-owned work through existing provider tools. Legacy settings do not start synchronization. The separate [folder binding](folder-sync.md) enables native rclone bisync; it is authoritative when present, and the agent must stop manual uploads to that same destination. GitHub-only settings can be activated through the separate [Git binding](github-sync.md); Hybrid settings do not activate native sync. The default is local storage with backup off. Setting a mode does not move existing files or authorize publication outside the selected library.
+Settings are agent-readable policy. Applying them is agent-owned work through existing provider tools. Legacy settings do not start synchronization. The separate [folder binding](folder-sync.md) enables native rclone bisync; it is authoritative when present, and the agent must stop manual uploads to that same destination. GitHub-only settings can be activated through the separate [Git binding](github-sync.md); Hybrid settings do not activate native sync. The default is local storage with backup off and semantic indexing. Existing settings without an `indexing` field remain semantic. Setting a mode does not move existing files or authorize publication outside the selected library.
 
 Example Hybrid settings (replace the example account and destination references):
 
@@ -14,11 +14,14 @@ Example Hybrid settings (replace the example account and destination references)
     "githubExtensions": [".md", ".txt", ".csv", ".json", ".pdf", ".docx"],
     "maxGithubBytes": 10485760
   },
-  "backup": {"mode": "off"}
+  "backup": {"mode": "off"},
+  "indexing": {"mode": "semantic"}
 }
 ```
 
 For `github` or `drive`, supply only the matching destination and omit the two routing fields. For `local`, supply only `mode`. Account references are opaque identifiers for already available tools; they are not OAuth tokens. Unknown fields are rejected. Hybrid requires explicit lowercase extensions and a ceiling below GitHub's ordinary 100 MiB per-file limit. The 10 MiB example is a conservative policy choice, not a provider limit. File type rules use the intended format, not permission to publish a file merely because its extension matches. PDF and DOCX are binary formats whose revisions can grow Git history.
+
+On CPU-only hosts with large vaults or very large extracted documents, choose `"indexing":{"mode":"keyword"}` through the same `settings` and `configure` revision flow. Keyword mode keeps QMD full-text indexing current without embeddings, so semantic retrieval is absent and must be reported as such. Switching to `semantic` later lets native QMD resume its partial embedding work. There is no automatic fallback between modes. `EZ_LIBRARY_EMBED=0` remains a global embedding disable and overrides every library's setting.
 
 The agent interprets Hybrid as selected extensions below the ceiling going to the chosen private GitHub repository; images, audio, video and remaining attachments go to the selected Drive folder. First verify access, account and destination identity using that provider's tools. Persisting to GitHub includes push and remote commit readback, not only a local commit. A Drive connection through Composio provides individual upload/update/download/change tools, not automatic folder synchronization. A Gmail connection is not proof of Drive access. Never copy provider credentials into a different transfer utility.
 

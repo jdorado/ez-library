@@ -1,5 +1,9 @@
 import { setTimeout } from 'node:timers/promises';
 import { syncRun, syncStatus } from './sync.mjs';
+import { locked } from './store.mjs';
+import { refreshIndex } from './indexer.mjs';
+import { embeddingStatus } from './embedding-client.mjs';
+import { catalog, libraryRoot } from './libraries.mjs';
 
 // One resident supervisor, no LLM polling or provider transport implementation.
 // Native bisync owns deltas, conflicts, receipts, and recovery. The same Library
@@ -9,12 +13,29 @@ let stopping = false;
 const controller = new AbortController();
 process.on('SIGTERM', () => { stopping = true; controller.abort(); });
 process.on('SIGINT', () => { stopping = true; controller.abort(); });
+const due = new Map();
 while (!stopping) {
   let interval = 60;
   try {
-    const { config } = await syncStatus(root);
-    interval = config?.intervalSeconds || 60;
-    if (config?.mode === 'two-way') await syncRun(root);
+    for (const { name } of (await catalog(root)).libraries) {
+      if (stopping) break;
+      try {
+        const selected = await libraryRoot(root, name);
+        const { config } = await syncStatus(selected);
+        if (config?.mode !== 'two-way') {
+          due.delete(name);
+          if ((await embeddingStatus()).state === 'ready') await locked(selected, refreshIndex);
+          continue;
+        }
+        if ((due.get(name) || 0) <= Date.now()) {
+          try { await syncRun(selected, root); }
+          finally { due.set(name, Date.now() + config.intervalSeconds * 1000); }
+        }
+        interval = Math.min(interval, Math.max(1, ((due.get(name) || 0) - Date.now()) / 1000));
+      } catch (error) {
+        process.stderr.write(JSON.stringify({ event: 'library-sync', library: name, code: error.code || 'UNAVAILABLE', message: error.message }) + '\n');
+      }
+    }
   } catch (error) {
     process.stderr.write(JSON.stringify({ event: 'library-sync', code: error.code || 'UNAVAILABLE', message: error.message }) + '\n');
   }

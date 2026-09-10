@@ -117,3 +117,19 @@ test('hidden originals obey Git safety and size checks before any push', async t
   await assert.rejects(cycle(root, config), { code: 'TOO_LARGE' });
   assert.equal(outside(['--git-dir', remote, 'rev-parse', 'main']).trim(), original);
 });
+
+
+test('named Git adoption rejects default and sibling private state including symlink aliases', async t => {
+  const { base, root, remote } = await setup(t);
+  const selected = path.join(root, 'libraries/work');
+  for (const relative of ['sync/git', 'libraries/personal/sync/git']) {
+    const privateRepo = path.join(root, relative);
+    await fs.mkdir(privateRepo, { recursive: true });
+    await assert.rejects(gitAdopt(selected, privateRepo, 'main', root), { code: 'UNSAFE_PATH' });
+  }
+  const alias = path.join(base, 'alias');
+  await fs.symlink(path.join(root, 'sync/git'), alias);
+  await assert.rejects(gitAdopt(selected, alias, 'main', root), { code: 'UNSAFE_PATH' });
+  await assert.rejects(fs.stat(path.join(selected, 'sync/config.json')), { code: 'ENOENT' });
+  assert.equal((await gitAdopt(selected, remote, 'main', root)).config.repository, remote);
+});

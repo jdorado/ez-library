@@ -1,11 +1,12 @@
 # Releasing
 
-Use CONTRIBUTING.md for every change. The source repository is public and registered in the Ez catalog; the npm package remains private/unreleased. Publication requires a separate reviewed release PR removing the private flag and maintainer authorization. Keep manifest and package versions equal. Versions are immutable once published.
+Use CONTRIBUTING.md for every change. The source repository is public and registered in the Ez catalog; the first public npm candidate is 0.1.0-beta.10. Publication requires the reviewed release preparation PR and maintainer authorization. Keep manifest and package versions equal. Versions are immutable once published.
 
 1. Run `pnpm install --frozen-lockfile`, `pnpm verify`, `npm run release:check`, and `git diff --check`. Review dependency audit results and licenses without automatic fixes. After lockfile changes, copy `pnpm-lock.yaml` to `docker/pnpm-lock.yaml`.
 2. Run `npm pack --ignore-scripts --pack-destination /absolute/temporary-directory`, inspect its file list, hash it, and extract into an empty directory. Rebuild Docker `test` and `runtime` targets from that extracted package. Restore `docker/pnpm-lock.yaml` to the extracted root for a frozen pnpm installation. Check CLI help without state.
-3. Run `EZ_LIBRARY_IMAGE=ez-library:local node docker/smoke.mjs`. For installer/descriptor changes also run `EZ_MANAGER_MODULE=/absolute/released-ez/src/plugins/manager.mjs node docker/manager-smoke.mjs`. The latter is an explicit integration input, not a runtime dependency on a sibling repository. Use separate state and synthetic data. Verify install is inert, registered dispatch, restart persistence and data-preserving uninstall.
-   For folder-sync changes also run `EZ_LIBRARY_IMAGE=ez-library:local EZ_LIBRARY_MODELS_DIR=/absolute/qmd/models node docker/sync-smoke.mjs`; it uses separate volumes and synthetic files with networking disabled. Native cloud authorization and provider readback remain separate required evidence for a live cloud binding.
+3. Run `EZ_LIBRARY_IMAGE=ez-library:local node docker/smoke.mjs`. For installer/descriptor changes also run `EZ_MANAGER_MODULE=/absolute/released-ez/src/plugins/manager.mjs node docker/manager-smoke.mjs`. Also run `EZ_MANAGER_MODULE=/absolute/released-ez/src/plugins/manager.mjs node docker/shared-smoke.mjs` for the shared worker and real semantic retrieval. The latter is an explicit integration input, not a runtime dependency on a sibling repository. Use separate state and synthetic data. Verify install is inert, registered dispatch, restart persistence and data-preserving uninstall.
+   For folder-sync changes also run `EZ_LIBRARY_IMAGE=ez-library:local node docker/sync-smoke.mjs`; it uses separate volumes and synthetic files with networking disabled. Native cloud authorization and provider readback remain separate required evidence for a live cloud binding.
+   For text-mirror changes also run `EZ_LIBRARY_IMAGE=ez-library:local node docker/text-mirror-smoke.mjs`.
 4. Before initial release, validate on a disposable fresh host from the exact package. Verify QMD search and source readback through the actual executor. Verify authorized provider identity, selected destination, file transfer and restore independently if claiming remote persistence. Record private receipts outside source; publish only sanitized outcomes.
 5. Review Git history and npm contents for private data. Confirm package namespace, repository metadata and publisher access. Enable and verify private vulnerability reporting and required CI/review branch rules before public publication. Obtain independent review of the final commit, passing required CI, applicable QA and maintainer merge/release authorization. Merge and publication remain separate decisions. The manual [shared beta publisher](#shared-beta-publisher) does not bypass these gates or perform automatic releases.
 
@@ -29,12 +30,11 @@ GitHub-hosted Actions, and supports only `X.Y.Z-beta.N` on the npm `latest` tag.
 The Mac performs independent review and isolated artifact tests. No test job
 receives npm credentials and no package code runs in the publishing jobs.
 
-Initial publication remains blocked by `private: true`. A separate reviewed
-release preparation must reconcile existing beta candidates, select matching
-package/manifest versions, inspect the exact packed contents, satisfy the
-fresh-host/provider QA above, and verify repository protection and private
-reporting before removing that flag. This workflow change does not select or
-claim an installable release.
+Initial release preparation reconciles the private beta.7, beta.8 and beta.9
+candidates as beta.10 with matching package/manifest versions. Before publishing,
+inspect the exact packed contents, satisfy the fresh-host/provider QA above,
+and verify repository protection and private reporting. Source preparation
+and removal of the private flag do not establish registry delivery.
 
 The npm package must exist before trusted-publisher enrollment. The account
 owner must complete an authenticated, approved real initial beta publication
