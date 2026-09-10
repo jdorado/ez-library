@@ -2,7 +2,7 @@
 
 Use CONTRIBUTING.md for every change. The source repository is public and registered in the Ez catalog; the first public npm candidate is 0.1.0-beta.10. Publication requires the reviewed release preparation PR and maintainer authorization. Keep manifest and package versions equal. Versions are immutable once published.
 
-1. Run `pnpm install --frozen-lockfile`, `pnpm verify`, `npm run release:check`, and `git diff --check`. The release check also verifies that `package.json` is not private, requests public npm access on the `latest` tag, matches the repository identity, and agrees with the pinned trusted-publisher caller. It does not prove npm package existence, npm trust enrollment, or registry delivery; read those back separately. Review dependency audit results and licenses without automatic fixes. After lockfile changes, copy `pnpm-lock.yaml` to `docker/pnpm-lock.yaml`.
+1. Run `pnpm install --frozen-lockfile`, `pnpm verify`, `npm run release:check`, and `git diff --check`. The release check also verifies that `package.json` is not private, requests public npm access on the `latest` tag, matches the repository identity, and agrees with the pinned trusted-publisher caller. The generated caller is checked against its complete reviewed contract (ignoring blank lines, standalone comments, trailing whitespace and line endings); regenerate and review contract updates together, including changes to permissions, inputs or required checks. It does not prove npm package existence, npm trust enrollment, or registry delivery; read those back separately. Review dependency audit results and licenses without automatic fixes. After lockfile changes, copy `pnpm-lock.yaml` to `docker/pnpm-lock.yaml`.
 2. Run `npm pack --ignore-scripts --pack-destination /absolute/temporary-directory`, inspect its file list, hash it, and extract into an empty directory. Rebuild Docker `test` and `runtime` targets from that extracted package. Restore `docker/pnpm-lock.yaml` to the extracted root for a frozen pnpm installation. Check CLI help without state.
 3. Run `EZ_LIBRARY_IMAGE=ez-library:local node docker/smoke.mjs`. For installer/descriptor changes also run `EZ_MANAGER_MODULE=/absolute/released-ez/src/plugins/manager.mjs node docker/manager-smoke.mjs`. Also run `EZ_MANAGER_MODULE=/absolute/released-ez/src/plugins/manager.mjs node docker/shared-smoke.mjs` for the shared worker and real semantic retrieval. The latter is an explicit integration input, not a runtime dependency on a sibling repository. Use separate state and synthetic data. Verify install is inert, registered dispatch, restart persistence and data-preserving uninstall.
    For folder-sync changes also run `EZ_LIBRARY_IMAGE=ez-library:local node docker/sync-smoke.mjs`; it uses separate volumes and synthetic files with networking disabled. Native cloud authorization and provider readback remain separate required evidence for a live cloud binding.
@@ -13,13 +13,13 @@ Use CONTRIBUTING.md for every change. The source repository is public and regist
 ## Shared beta publisher
 
 `.github/workflows/publish-beta.yml` is a generated caller of the single
-[core publisher](https://github.com/jdorado/ez-agents/blob/f5176f4eddbded50abf0d1bed48431c43a39bf1c/docs/trusted-publishing.md).
+[core publisher](https://github.com/jdorado/ez-agents/blob/fed05b9c88a5d96a801436a36983254758f03389/docs/trusted-publishing.md).
 The reviewed latest-tag policy is merged in [core PR #44](https://github.com/jdorado/ez-agents/pull/44). Both the reusable workflow reference and `publisher-sha`
 pin the same immutable core commit. To regenerate from that reviewed core checkout:
 
 ```sh
 node scripts/generate-publish-caller.mjs jdorado/ez-library \
-  @jc_stack/ez-library f5176f4eddbded50abf0d1bed48431c43a39bf1c \
+  @jc_stack/ez-library fed05b9c88a5d96a801436a36983254758f03389 \
   '["verify (22)","verify (24)","docker"]' > publish-beta.yml
 ```
 

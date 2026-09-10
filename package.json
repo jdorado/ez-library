@@ -21,6 +21,7 @@
     "docker",
     "scripts/release-check.mjs",
     "scripts/publish-settings.mjs",
+    ".github/workflows/publish-beta.yml",
     "ez-plugin.json",
     "ez-deployment.json",
     "Dockerfile",
