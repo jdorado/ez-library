@@ -20,7 +20,7 @@ without moving attachments or changing the working folder.
 
 ## Requirements and installation
 
-Use Node 22+, Docker with Compose, and an initialized agent-bound Ez plugin manager supporting deployment schema 3. The runtime has a 4 GiB memory ceiling; optional shared embedding inference uses a separate 2 GiB memory ceiling, roughly 300 MB of model disk and a default half-core CPU limit. GitHub/Drive are optional, separately authorized connections.
+Use Node 22+, Docker with Compose, and an initialized agent-bound Ez plugin manager supporting deployment schema 3 with service CPU limits. The runtime is capped at 2 CPU cores and 4 GiB memory; optional shared embedding inference uses a separate 2 GiB memory ceiling, roughly 300 MB of model disk and a default half-core CPU limit. GitHub/Drive are optional, separately authorized connections.
 
 Install a reviewed checkout or extracted package using the agent's bound `ez`:
 
