@@ -23,6 +23,11 @@ versioning. Unchanged batches do not add commits. Moves/deletions are reflected
 in the new tree and previous versions remain in Git history. Default extensions
 are `.md,.markdown,.txt,.csv,.tsv`; use an explicit comma-separated `--extensions`
 selection to change this at adoption. Hidden files/settings are excluded.
+Use `--exclude-directories private,archive/old` at adoption to omit selected
+relative directory subtrees. Prefixes match whole path segments, so excluding
+`private` does not exclude `private-notes`. Absolute paths, traversal, hidden
+segments and `.git` are rejected. Exclusions affect only Git history; the files
+remain in the working folder and its folder synchronization.
 The mirror's private working tree and Git metadata are outside originals under
 `sync/text-mirror`; it reuses only the Library-owned repository deploy key.
 

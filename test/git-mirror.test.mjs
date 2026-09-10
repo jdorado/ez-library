@@ -62,10 +62,39 @@ test('failed adoption resumes exact partial setup after remote branch is correct
   const checkout = path.join(base, 'seed'); git(['clone', remote, checkout]);
   await fs.writeFile(path.join(checkout, 'existing.md'), 'existing');
   git(['-C', checkout, 'add', '.']); git(['-C', checkout, 'commit', '-m', 'seed']); git(['-C', checkout, 'push']);
-  await assert.rejects(mirrorAdopt(root, remote), { code: 'CONFLICT' });
+  await assert.rejects(mirrorAdopt(root, remote, 'main', undefined, root, 'private'), { code: 'CONFLICT' });
   assert.equal((await mirrorStatus(root)).config, null);
+  await assert.rejects(mirrorAdopt(root, remote, 'library-history', undefined, root, 'other'), error => {
+    assert.equal(error.code, 'CONFLICT');
+    assert.match(error.message, /different excluded directories/);
+    return true;
+  });
   // Select an empty branch on the same repository; preserve its existing main.
-  await mirrorAdopt(root, remote, 'library-history');
+  await mirrorAdopt(root, remote, 'library-history', undefined, root, 'private');
   assert.equal((await cycle()).remoteVerified, true);
   assert.equal(git(['--git-dir', remote, 'show', 'main:existing.md']), 'existing');
+});
+
+test('text mirror excludes configured directory subtrees without matching similar prefixes', async t => {
+  const { root, remote, git, cycle } = await fixture(t);
+  await put(root, 'private/note.md', Readable.from(['excluded']), { expected: 'new', key: 'excluded' });
+  await put(root, 'private/deeper/note.txt', Readable.from(['also excluded']), { expected: 'new', key: 'deeper' });
+  await put(root, 'private-notes/note.md', Readable.from(['retained']), { expected: 'new', key: 'retained' });
+  await mirrorAdopt(root, remote, 'main', '.md,.txt', root, 'private');
+  assert.deepEqual((await mirrorStatus(root)).config.excludeDirectories, ['private']);
+  await cycle();
+  assert.equal(git(['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'main']).trim(), 'private-notes/note.md');
+  assert.equal(await fs.readFile(path.join(root, 'files/private/note.md'), 'utf8'), 'excluded');
+});
+
+test('text mirror rejects unsafe excluded directory prefixes and accepts legacy config without exclusions', async t => {
+  const { root, remote, cycle } = await fixture(t);
+  await assert.rejects(mirrorAdopt(root, remote, 'main', undefined, root, '../private'), { code: 'INVALID' });
+  await mirrorAdopt(root, remote);
+  const configPath = path.join(root, 'sync/text-mirror.json');
+  const config = JSON.parse(await fs.readFile(configPath, 'utf8'));
+  delete config.excludeDirectories;
+  await fs.writeFile(configPath, JSON.stringify(config));
+  assert.equal((await mirrorStatus(root)).config.excludeDirectories, undefined);
+  assert.equal((await cycle()).remoteVerified, true);
 });

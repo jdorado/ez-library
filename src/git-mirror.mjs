@@ -7,14 +7,26 @@ import { native, succeeded } from './native.mjs';
 
 const file = root => path.join(root, 'sync/text-mirror.json');
 const mirrorGit = (root, config, args, options) => git(root, { ...config, textMirror: true }, args, options);
+const validExcludedDirectory = value => typeof value === 'string' && value.length > 0 && !path.isAbsolute(value) &&
+  !/[\x00-\x1f\\]/.test(value) && !value.endsWith('/') &&
+  value.split('/').every(part => part && part !== '.' && part !== '..' && !part.startsWith('.') && part.toLowerCase() !== '.git');
+function excludedDirectories(value = '') {
+  const directories = value === '' || value === undefined ? [] : value.split(',').map(item => item.trim());
+  if (directories.some(item => !validExcludedDirectory(item)) || new Set(directories).size !== directories.length) {
+    fail('INVALID', 'Supply unique comma-separated relative directory prefixes without hidden or traversal segments');
+  }
+  return directories;
+}
 export async function mirrorStatus(root) {
   await safePath(root, 'sync/text-mirror.json');
   const config = await fs.readFile(file(root), 'utf8').then(JSON.parse).catch(e => { if (e.code === 'ENOENT') return null; throw e; });
-  if (config && (config.schemaVersion !== 1 || !['paused', 'one-way'].includes(config.mode) || !Array.isArray(config.extensions) || !config.extensions.length || config.extensions.some(x => !/^\.[a-z0-9]{1,12}$/.test(x)))) fail('INVALID', 'Invalid text mirror configuration');
+  if (config && (config.schemaVersion !== 1 || !['paused', 'one-way'].includes(config.mode) || !Array.isArray(config.extensions) || !config.extensions.length || config.extensions.some(x => !/^\.[a-z0-9]{1,12}$/.test(x)) ||
+    (config.excludeDirectories !== undefined && (!Array.isArray(config.excludeDirectories) || config.excludeDirectories.some(x => !validExcludedDirectory(x)) || new Set(config.excludeDirectories).size !== config.excludeDirectories.length)))) fail('INVALID', 'Invalid text mirror configuration');
   return { config, revision: config ? hash(jsonBytes(config)) : null };
 }
-export async function mirrorAdopt(root, repository, branch = 'main', extensions = '.md,.markdown,.txt,.csv,.tsv', stateRoot = root) {
+export async function mirrorAdopt(root, repository, branch = 'main', extensions = '.md,.markdown,.txt,.csv,.tsv', stateRoot = root, excluded = '') {
   repositoryURL(repository);
+  const exclusions = excludedDirectories(excluded);
   return locked(root, async root => {
     if (path.isAbsolute(repository)) {
       const real = await fs.realpath(repository), base = await fs.realpath(stateRoot);
@@ -23,7 +35,7 @@ export async function mirrorAdopt(root, repository, branch = 'main', extensions 
     const binding = JSON.parse(await fs.readFile(await safePath(root, 'sync/config.json'), 'utf8'));
     if (binding.backend === 'git') fail('CONFLICT', 'Text mirror requires a folder binding, not another Git writer');
     if ((await mirrorStatus(root)).config) fail('CONFLICT', 'Text mirror already configured; inspect git-mirror-status');
-    const config = { schemaVersion: 1, repository, branch, extensions: extensions.split(','), mode: 'paused' };
+    const config = { schemaVersion: 1, repository, branch, extensions: extensions.split(','), mode: 'paused', ...(exclusions.length ? { excludeDirectories: exclusions } : {}) };
     if (!config.extensions.length || config.extensions.some(x => !/^\.[a-z0-9]{1,12}$/.test(x))) fail('INVALID', 'Supply comma-separated lowercase extensions');
     const dir = path.join(root, 'sync/text-mirror');
     await safePath(root, 'sync/text-mirror/files/probe', true);
@@ -32,6 +44,10 @@ export async function mirrorAdopt(root, repository, branch = 'main', extensions 
     await safePath(root, 'sync/text-mirror/git/probe', true);
     succeeded(await native(root, '/usr/bin/git', ['init', '--bare', path.join(dir, 'git')], { env: { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } }), 'Initialize mirror');
     succeeded(await mirrorGit(root, config, ['config', 'core.bare', 'false']), 'Configure mirror');
+    const expectedExclusions = JSON.stringify(exclusions);
+    const recordedExclusions = await mirrorGit(root, config, ['config', '--get', 'ez-library.mirrorExcludeDirectories']);
+    if (recordedExclusions.code === 0 && recordedExclusions.stdout.trim() !== expectedExclusions) fail('CONFLICT', 'Partial mirror setup uses different excluded directories');
+    if (recordedExclusions.code !== 0) succeeded(await mirrorGit(root, config, ['config', 'ez-library.mirrorExcludeDirectories', expectedExclusions]), 'Record mirror exclusions');
     if ((await mirrorGit(root, config, ['rev-parse', '--verify', 'HEAD'])).code === 0) fail('CONFLICT', 'Unconfigured mirror has local history; preserve it for recovery');
     succeeded(await mirrorGit(root, config, ['symbolic-ref', 'HEAD', 'refs/heads/' + branch]), 'Select mirror branch');
     const origin = await mirrorGit(root, config, ['remote', 'get-url', 'origin']);
@@ -68,7 +84,9 @@ export async function mirrorTransfer(root) {
     succeeded(await run(['fetch', '--no-tags', 'origin', 'refs/heads/' + config.branch]), 'Fetch mirror head');
     if ((await run(['merge-base', '--is-ancestor', 'FETCH_HEAD', 'HEAD'])).code !== 0) fail('CONFLICT', 'GitHub mirror was edited externally; preserve and reconcile it before resuming');
   } else if (config.lastCommit) fail('CONFLICT', 'Mirror branch disappeared; no automatic recreation');
-  const selected = (await inventory(path.join(root, 'files'))).filter(x => config.extensions.includes(path.extname(x.path).toLowerCase()));
+  const exclusions = config.excludeDirectories || [];
+  const selected = (await inventory(path.join(root, 'files'))).filter(x => config.extensions.includes(path.extname(x.path).toLowerCase()) &&
+    !exclusions.some(directory => x.path === directory || x.path.startsWith(directory + '/')));
   if (selected.some(x => x.bytes >= 100 * 1024 * 1024)) fail('TOO_LARGE', 'Text mirror file exceeds GitHub ordinary-file limit');
   const target = path.join(root, 'sync/text-mirror/files');
   const selectedPaths = new Set(selected.map(x => x.path));
