@@ -29,7 +29,8 @@
     "CONTRIBUTING.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "patches"
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
@@ -44,7 +45,10 @@
     "onlyBuiltDependencies": [
       "better-sqlite3",
       "node-llama-cpp"
-    ]
+    ],
+    "patchedDependencies": {
+      "@tobilu/qmd@2.8.3": "patches/@tobilu__qmd@2.8.3.patch"
+    }
   },
   "repository": {
     "type": "git",

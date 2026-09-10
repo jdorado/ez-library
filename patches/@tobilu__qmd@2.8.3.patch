@@ -1,0 +1,60 @@
+diff --git a/dist/llm.js b/dist/llm.js
+index 7dc9618b26617e2beb00bd651c4c6a8482db7018..b4077da315f0649b17ed6ba6bdd6b845919e0218 100644
+--- a/dist/llm.js
++++ b/dist/llm.js
+@@ -999,6 +999,7 @@ export class LlamaCpp {
+      * Returns tokenizer tokens (opaque type from node-llama-cpp)
+      */
+     async tokenize(text) {
++        if (process.env.QMD_EMBED_MODULE) return (await import(process.env.QMD_EMBED_MODULE)).invoke("tokenize", this.embedModelUri, [text]);
+         await this.ensureEmbedContext(); // Ensure model is loaded
+         if (!this.embedModel) {
+             throw new Error("Embed model not loaded");
+@@ -1016,6 +1017,7 @@ export class LlamaCpp {
+      * Detokenize token IDs back to text
+      */
+     async detokenize(tokens) {
++        if (process.env.QMD_EMBED_MODULE) return (await import(process.env.QMD_EMBED_MODULE)).invoke("detokenize", this.embedModelUri, [tokens]);
+         await this.ensureEmbedContext();
+         if (!this.embedModel) {
+             throw new Error("Embed model not loaded");
+@@ -1054,6 +1056,7 @@ export class LlamaCpp {
+         return { text: truncatedText, truncated: true, limit: maxTokens };
+     }
+     async embed(text, options = {}) {
++        if (process.env.QMD_EMBED_MODULE) return (await import(process.env.QMD_EMBED_MODULE)).invoke("embed", this.embedModelUri, [text, options]);
+         // Ping activity at start to keep models alive during this operation
+         this.touchActivity();
+         try {
+@@ -1079,6 +1082,7 @@ export class LlamaCpp {
+      * Uses Promise.all for parallel embedding - node-llama-cpp handles batching internally
+      */
+     async embedBatch(texts, options = {}) {
++        if (process.env.QMD_EMBED_MODULE) return (await import(process.env.QMD_EMBED_MODULE)).invoke("embedBatch", this.embedModelUri, [texts, options]);
+         if (this._ciMode)
+             throw new Error("LLM operations are disabled in CI (set CI=true)");
+         // Ping activity at start to keep models alive during this operation
+@@ -1140,6 +1144,7 @@ export class LlamaCpp {
+         }
+     }
+     async generate(prompt, options = {}) {
++        if (process.env.QMD_EMBED_MODULE) throw new Error("External embedding mode does not support generation or reranking; use a vec: query with --no-rerank");
+         if (this._ciMode)
+             throw new Error("LLM operations are disabled in CI (set CI=true)");
+         // Ping activity at start to keep models alive during this operation
+@@ -1194,6 +1199,7 @@ export class LlamaCpp {
+     // High-level abstractions
+     // ==========================================================================
+     async expandQuery(query, options = {}) {
++        if (process.env.QMD_EMBED_MODULE) throw new Error("External embedding mode does not support generation or reranking; use a vec: query with --no-rerank");
+         if (this._ciMode)
+             throw new Error("LLM operations are disabled in CI (set CI=true)");
+         // Ping activity at start to keep models alive during this operation
+@@ -1294,6 +1300,7 @@ export class LlamaCpp {
+     static RERANK_TEMPLATE_OVERHEAD = 512;
+     static RERANK_TARGET_DOCS_PER_CONTEXT = 10;
+     async rerank(query, documents, options = {}) {
++        if (process.env.QMD_EMBED_MODULE) throw new Error("External embedding mode does not support generation or reranking; use a vec: query with --no-rerank");
+         if (this._ciMode)
+             throw new Error("LLM operations are disabled in CI (set CI=true)");
+         // Ping activity at start to keep models alive during this operation

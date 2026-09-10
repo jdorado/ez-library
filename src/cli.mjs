@@ -8,7 +8,9 @@ import { pipeline } from 'node:stream/promises';
 import { constants } from 'node:fs';
 import { fail, rootDir, locked, settings, validateSettings, put, operation, organize, list, safePath, digest, jsonBytes, defaults } from './store.mjs';
 import { syncPlan, syncAdopt, syncPolicy, syncRun, syncStatus } from './sync.mjs';
-import { rclone } from './native.mjs';
+import { rclone, environment } from './native.mjs';
+import { indexStatus } from './indexer.mjs';
+import { embeddingStatus } from './embedding-client.mjs';
 import { gitKey, gitAdopt, git } from './git-sync.mjs';
 
 const version = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url))).version;
@@ -49,11 +51,10 @@ QMD returns its native exit code. See the packaged library skill for onboarding.
 `;
 
 export function qmdEnvironment(root) {
-  return { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: path.join(root, 'qmd'),
-    XDG_CONFIG_HOME: path.join(root, 'qmd', 'config'), XDG_CACHE_HOME: path.join(root, 'qmd', 'cache'),
-    QMD_CONFIG_DIR: path.join(root, 'qmd', 'config', 'qmd'), LANG: 'C.UTF-8' };
+  return environment(root);
 }
 async function runQmd(root, args) {
+  if (args.includes('pull')) fail('INVALID', 'Library does not download per-agent models; enable shared embeddings through Ez');
   const cli = fileURLToPath(new URL('./cli/qmd.js', import.meta.resolve('@tobilu/qmd')));
   return locked(root, root => runNative(root, process.execPath, [cli, ...args]));
 }
@@ -133,7 +134,7 @@ export async function main(argv = process.argv.slice(2)) {
       let qmdAvailable = true;
       try { import.meta.resolve('@tobilu/qmd'); } catch { qmdAvailable = false; }
       emit({ version, state: root, configured, qmdAvailable, storageMode: value.settings.storage.mode,
-        folderSync: await syncStatus(root),
+        folderSync: await syncStatus(root), embeddings: { service: await embeddingStatus(), index: await indexStatus(root) },
         cloudPersistence: value.settings.storage.mode === 'local' ? 'disabled' : 'configured-not-verified',
         backup: value.settings.backup.mode === 'off' ? 'disabled' : 'configured-not-verified' }); return;
     }

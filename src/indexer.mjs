@@ -23,9 +23,11 @@ export async function refreshIndex(root) {
   if ((await fs.lstat(cache)).isSymbolicLink()) throw Error('Extraction cache cannot be a symlink');
   const files = await inventory(path.join(root, 'files'));
   const fingerprint = hash(jsonBytes(files));
+  await fs.mkdir(path.join(root, 'sync'), { recursive: true, mode: 0o700 });
   const ledgerFile = path.join(root, 'sync/index.json');
   const before = await fs.readFile(ledgerFile, 'utf8').then(JSON.parse).catch(e => { if (e.code === 'ENOENT') return {}; throw e; });
-  if (before.fingerprint === fingerprint && before.embedded) return before;
+  const semantic = Boolean(process.env.EZ_LIBRARY_EMBED_SOCKET);
+  if (before.fingerprint === fingerprint && (semantic ? before.embedded : before.embeddingState === 'off')) return before;
   const extracted = {}, pending = [];
   for (const file of files.filter(f => /\.pdf$/i.test(f.path))) {
     const target = await safePath(root, 'index-text/' + file.path + '.md', true);
@@ -50,10 +52,20 @@ export async function refreshIndex(root) {
   }
   succeeded(await qmd(root, ['update']), 'QMD update');
   const conflicts = files.filter(f => /\.conflict-(local|remote)/.test(f.path)).map(f => f.path);
-  const indexed = { fingerprint, extracted, pending, conflicts, indexedAt: new Date().toISOString(), embedded: false };
+  const indexed = { fingerprint, extracted, pending, conflicts, indexedAt: new Date().toISOString(), embedded: false, embeddingState: semantic ? 'indexing' : 'off' };
   await atomic(ledgerFile, jsonBytes(indexed));
-  succeeded(await qmd(root, ['embed', '--no-gpu', '--max-docs-per-batch', '8']), 'QMD embed');
+  if (!semantic) return indexed;
+  try { succeeded(await qmd(root, ['embed', '--no-gpu', '--max-docs-per-batch', '8']), 'QMD embed'); }
+  catch (error) { indexed.embeddingState = 'unavailable'; await atomic(ledgerFile, jsonBytes(indexed)); throw error; }
   indexed.embedded = true;
+  indexed.embeddingState = 'ready';
   await atomic(ledgerFile, jsonBytes(indexed));
   return indexed;
+}
+
+export async function indexStatus(root) {
+  const before = await fs.readFile(path.join(root, 'sync/index.json'), 'utf8').then(JSON.parse).catch(e => { if (e.code === 'ENOENT') return null; throw e; });
+  if (!before) return { state: 'pending', indexedAt: null };
+  const fingerprint = hash(jsonBytes(await inventory(path.join(root, 'files'))));
+  return { state: fingerprint === before.fingerprint ? before.embeddingState : 'pending', indexedAt: before.indexedAt };
 }

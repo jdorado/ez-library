@@ -17,6 +17,7 @@ COPY --from=sync-engine /usr/local/bin/rclone /usr/local/bin/rclone
 WORKDIR /app
 COPY package.json ./
 COPY docker/pnpm-lock.yaml ./pnpm-lock.yaml
+COPY patches ./patches
 RUN pnpm install --prod --frozen-lockfile
 COPY --chown=node:node src ./src
 COPY --chown=node:node bin ./bin
@@ -26,3 +27,11 @@ RUN mkdir -p /state/qmd/cache/qmd/models /state/qmd/config/qmd && chown -R node:
 ENV EZ_LIBRARY_STATE=/state
 USER node
 CMD ["node", "/app/src/sync-worker.mjs"]
+
+
+FROM runtime AS embeddings
+USER root
+RUN mkdir -p /inference /models && chown -R node:node /inference /models && chmod 770 /inference /models
+ENV QMD_FORCE_CPU=1 QMD_EMBED_PARALLELISM=1
+USER node
+CMD ["node", "/app/src/embedding-worker.mjs"]

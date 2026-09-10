@@ -8,7 +8,7 @@ See [existing-folder setup and sync policy](docs/folder-sync.md) and [GitHub-onl
 
 ## Requirements and installation
 
-Use Node 22+, Docker with Compose, and an initialized agent-bound Ez plugin manager supporting deployment schema 2. The runtime has a 4 GiB memory ceiling; semantic models additionally need roughly 2.1 GB disk and CPU time. GitHub/Drive are optional, separately authorized connections.
+Use Node 22+, Docker with Compose, and an initialized agent-bound Ez plugin manager supporting deployment schema 3. The runtime has a 4 GiB memory ceiling; optional shared embedding inference uses a separate 2 GiB memory ceiling, roughly 300 MB of model disk and CPU time. GitHub/Drive are optional, separately authorized connections.
 
 Install a reviewed checkout or extracted package using the agent's bound `ez`:
 
@@ -48,15 +48,22 @@ ez library qmd get qmd://library/notes/travel.md
 
 `get` returns the content hash and size; `get --raw` emits exact bytes, including binary attachments. Files enter on stdin, so the plugin does not mount the agent workspace or infer host file access. Readback proves local storage only. Each agent's registry provides a separate data volume; never share it across identities merely to share search.
 
-For semantic search, explicitly download models and embed:
+Semantic embeddings are **off by default**. Enable them explicitly through the owning agent's host manager:
 
 ```sh
-ez library qmd pull
-ez library qmd embed --no-gpu --max-docs-per-batch 8
+ez plugins shared-enable library embeddings
+ez plugins shared-status library embeddings
+ez library doctor
 ez library qmd query 'vec: What should I pack for a trip?' -c library --no-rerank --json -n 5
 ```
 
-These are upstream QMD commands, passed as literal argv with its native output and exit codes. Structured `vec:` queries with `--no-rerank` avoid the CPU expense of local query expansion/reranking. QMD `vsearch` also performs expansion. Run `qmd update`, then `qmd embed` when needed after file changes; unbound local intake does not schedule indexing. An adopted folder enables automatic refresh after sync. QMD models/indexes live separately from originals in the private volume. Retrieval is a snapshot; `library get` checks current bytes.
+The manager discovers or creates one compatible embedding worker per Docker daemon. Clients share a read-only Unix-socket mount; model weights stay in the worker's persistent volume. Each agent keeps its own files, QMD database and vectors. No public port or Docker socket is mounted in Library. Concurrent first enables converge on one named container.
+
+Enablement returns while the worker loads its model. `doctor` reports service and private-index readiness separately. The existing resident service indexes local files once the worker is ready, then checks every 60 seconds; adopted folders refresh after sync. `qmd update` and `qmd embed --no-gpu --max-docs-per-batch 8` can request immediate refresh under the same writer lock. A busy lock means wait for its active writer. Keyword search works while semantic indexing is pending or unavailable.
+
+Only embedding/tokenizer inference is shared. Use structured `vec:` queries with `--no-rerank`; query expansion, reranking and per-agent `qmd pull` are deliberately unavailable. There is no silent local-model fallback. The pinned QMD transport patch leaves chunking, prompt formatting, storage and retrieval in QMD; see [shared embeddings](docs/shared-embeddings.md).
+
+`ez plugins shared-disable library embeddings` detaches this Library and preserves its files and index. Stopping or uninstalling a Library never stops or deletes the shared worker/models. Retrieval is a snapshot; `library get` checks current bytes.
 
 ## Browsable remote mirror
 
