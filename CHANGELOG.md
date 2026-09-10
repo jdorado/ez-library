@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-beta.12
+
+- Prepare a new release with npm publishing-settings verification included. Package trust and registry delivery are verified separately from local release checks.
+
 ## 0.1.0-beta.11
 
 - Prepare the initial public release with the corrected shared publisher. Include reviewed named libraries, Git text history and shared embedding support; requires schema-3-capable core beta.15 or newer.
