@@ -7,6 +7,12 @@ finishes; use `sync-policy` to change it or pause. Local commits survive network
 failures. A push is verified by reading the remote branch commit, and concurrent
 remote advancement is reported as uncertain for reconciliation next cycle.
 
+On a constrained host, set the Library service environment `EZ_LIBRARY_EMBED=0`
+to keep automatic Git transfer, extraction and full-text indexing without running
+embeddings under the writer lock. Status retains `embedded: false`; semantic
+search is not promised. The default remains automatic embeddings. Removing the
+setting resumes embedding even when original files have not changed.
+
 ## Connect without another OAuth login
 
 1. Through the registered GitHub plugin, run `ez github doctor` and inspect the
