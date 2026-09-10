@@ -150,10 +150,41 @@ export async function put(root, relative, input, { key, expected, kind = 'file',
 export async function operation(root, key) {
   const receiptFile = await safePath(root, path.relative(root, operationPath(root, key)));
   const receipt = JSON.parse(await fs.readFile(receiptFile, 'utf8'));
+  if (['move', 'remove'].includes(receipt.kind)) {
+    const source = await current(await safePath(root, 'files/' + receipt.path));
+    const target = receipt.to ? await current(await safePath(root, 'files/' + receipt.to)) : null;
+    return { ...receipt, state: source ? 'source-present' : receipt.kind === 'remove' ? 'removed' : target?.sha256 === receipt.expected ? 'moved' : 'changed' };
+  }
   if (!['file', 'settings'].includes(receipt.kind)) fail('INVALID', 'Invalid operation receipt');
   const file = await safePath(root, receipt.kind === 'settings' ? 'settings.json' : 'files/' + receipt.path);
   const now = await current(file);
   return { ...receipt, state: !now ? 'missing' : now.sha256 === receipt.sha256 ? 'stored' : 'changed' };
+}
+
+export async function organize(root, { path: relative, to, expected, key }) {
+  if (!/^[a-f0-9]{64}$/.test(expected || '')) fail('INVALID', 'Supply the current source SHA-256');
+  if (relative === 'LIBRARY_SYNC_ACCESS' || to === 'LIBRARY_SYNC_ACCESS') fail('INVALID', 'The sync access marker is reserved');
+  return locked(root, async root => {
+    const source = await safePath(root, 'files/' + relative);
+    const target = to === undefined ? null : await safePath(root, 'files/' + to, true);
+    if (target === source) fail('INVALID', 'Source and destination must differ');
+    const receipt = { kind: target ? 'move' : 'remove', path: relative, ...(target ? { to } : {}), expected };
+    const file = await safePath(root, path.relative(root, operationPath(root, key)));
+    const old = await fs.readFile(file, 'utf8').then(JSON.parse).catch(e => { if (e.code === 'ENOENT') return null; throw e; });
+    if (old && JSON.stringify(old) !== JSON.stringify(receipt)) fail('KEY_REUSED', 'Operation key belongs to a different request');
+    if (old) {
+      const observed = await operation(root, key);
+      if (['moved', 'removed'].includes(observed.state)) return { ...observed, replay: true };
+    }
+    const before = await current(source);
+    if (before?.sha256 !== expected || (target && await current(target))) fail('CONFLICT', 'Source changed or destination exists; read both paths before organizing');
+    const history = await safePath(root, 'history/' + expected);
+    await fs.copyFile(source, history, constants.COPYFILE_EXCL).catch(e => { if (e.code !== 'EEXIST') throw e; });
+    await fs.chmod(history, 0o600);
+    await atomic(file, jsonBytes(receipt));
+    if (target) await fs.rename(source, target); else await fs.unlink(source);
+    return { ...await operation(root, key), replay: false };
+  });
 }
 export async function list(root, prefix = '', limit = 100) {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000) fail('INVALID', 'Limit must be 1..1000');
