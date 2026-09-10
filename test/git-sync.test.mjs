@@ -101,3 +101,19 @@ test('changed Hybrid policy or bound remote stops Git before any upload', async 
   await git(root, config, ['remote', 'set-url', 'origin', remote + '-different']);
   await assert.rejects(cycle(root, config), { code: 'CONFLICT' });
 });
+
+test('hidden originals obey Git safety and size checks before any push', async t => {
+  const { root, remote, outside } = await setup(t);
+  const { config } = await gitAdopt(root, remote);
+  const original = outside(['--git-dir', remote, 'rev-parse', 'main']).trim();
+  const hidden = path.join(root, 'files/.hidden');
+  await fs.mkdir(hidden);
+  await fs.symlink('/etc/passwd', path.join(hidden, 'link'));
+  await assert.rejects(cycle(root, config), /Unsupported symlink/);
+  assert.equal(outside(['--git-dir', remote, 'rev-parse', 'main']).trim(), original);
+  await fs.unlink(path.join(hidden, 'link'));
+  const large = await fs.open(path.join(hidden, 'large.bin'), 'w');
+  await large.truncate(100 * 1024 * 1024); await large.close();
+  await assert.rejects(cycle(root, config), { code: 'TOO_LARGE' });
+  assert.equal(outside(['--git-dir', remote, 'rev-parse', 'main']).trim(), original);
+});

@@ -74,7 +74,7 @@ export async function gitAdopt(root, repository, branch = 'main') {
     try { await fs.access(binding); fail('CONFLICT', 'A sync binding already exists'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
     // Local state can be preserved in-place only when the remote has the same
     // bytes at every existing path. Extra local files stay as pending additions.
-    const local = await inventory(path.join(root, 'files'));
+    const local = await inventory(path.join(root, 'files'), '', { includeHidden: true });
     const config = { schemaVersion: 1, backend: 'git', repository, branch, mode: 'paused', intervalSeconds: 60 };
     succeeded(await git(root, config, ['check-ref-format', '--branch', branch]), 'Validate branch');
     const repoDir = await safePath(root, 'sync/git/probe', true);
@@ -108,9 +108,11 @@ export async function gitTransfer(root, config) {
   if (actualRemote !== repositoryURL(config.repository)) fail('CONFLICT', 'Git remote no longer matches the Library binding');
   const conflict = succeeded(await git(root, config, ['ls-files', '--unmerged']), 'Inspect merge state');
   if (conflict) fail('CONFLICT', 'Git merge unresolved; use native git status/show/add to resolve both retained versions before syncing');
-  const files = await inventory(path.join(root, 'files'));
+  const files = await inventory(path.join(root, 'files'), '', { includeHidden: true });
   if (files.some(f => f.bytes >= 100 * 1024 * 1024)) fail('TOO_LARGE', 'GitHub ordinary files must be below 100 MiB; select another storage mode for larger media');
   succeeded(await git(root, config, ['add', '--all', '--', '.']), 'Stage Library changes');
+  const stagedTree = succeeded(await git(root, config, ['write-tree']), 'Read staged tree').trim();
+  await tree(root, config, stagedTree);
   const ignored = succeeded(await git(root, config, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z']), 'Inspect ignored files').split('\0').filter(Boolean);
   if (ignored.some(name => files.some(file => file.path === name))) fail('CONFLICT', 'Library files are excluded by repository ignore rules; reconcile the rules before claiming synchronization');
   const diff = await git(root, config, ['diff', '--cached', '--quiet']);

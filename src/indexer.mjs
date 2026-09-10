@@ -3,12 +3,12 @@ import path from 'node:path';
 import { atomic, digest, hash, jsonBytes, safePath } from './store.mjs';
 import { native, qmd, succeeded } from './native.mjs';
 
-export async function inventory(directory, relative = '') {
+export async function inventory(directory, relative = '', { includeHidden = false } = {}) {
   const result = [];
   for (const item of (await fs.readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
-    if (item.name.startsWith('.')) continue;
+    if (!includeHidden && item.name.startsWith('.')) continue;
     const name = relative + item.name, file = path.join(directory, item.name);
-    if (item.isDirectory()) result.push(...await inventory(file, name + '/'));
+    if (item.isDirectory()) result.push(...await inventory(file, name + '/', { includeHidden }));
     else if (item.isFile()) result.push({ path: name, ...(await digest(file)) });
     else throw Error('Unsupported symlink or special file in Library');
   }
