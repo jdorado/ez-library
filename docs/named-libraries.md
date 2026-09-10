@@ -41,9 +41,11 @@ ez library qmd --library work search 'deployment' --json
 
 The remaining native arguments are passed unchanged. Each private QMD index can
 use the existing `library` and `library-pdf` collection names. Automatic index
-refresh still requires an adopted sync binding; local-only intake uses native
-QMD collection setup/update. Models and indexes are private per library in this
-release, so semantic setup can require additional disk space.
+refresh runs after configured sync cycles and for local libraries while the
+shared worker is ready. Without a worker or sync binding, use native QMD
+collection setup/update. Indexes remain private per library; explicitly enabled
+semantic inference uses the host shared worker and model weights. Per-library
+`indexing.mode: keyword` and `EZ_LIBRARY_EMBED=0` suppress automatic embeddings.
 
 `search QUERY --all` runs native QMD keyword search for each library. It returns
 results grouped and labelled by library, with a limit per library (default 5,

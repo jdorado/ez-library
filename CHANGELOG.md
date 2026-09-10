@@ -1,14 +1,14 @@
 # Changelog
 
-## 0.1.0-beta.8
+## 0.1.0-beta.10
 
 - Opt-in shared embedding worker, capped at half a CPU core, with private per-agent indexes.
 - Schema-3 manager support is required. Migration preserves the existing Library volume and compatible QMD vectors; deployment layout changes require explicit installation migration.
 
-## Unreleased
-
 - Add one-way GitHub text history after successful folder sync, preserving Drive as the editable workspace.
 
+- Respect global and per-library keyword-only indexing settings while keeping embeddings off until shared-worker enablement.
+- Reject local Git sources inside any Library state, including symlink aliases.
 - Add isolated named libraries, explicit command selection, source inventory and labelled cross-library QMD keyword search. Preserve existing state as default.
 
 ## 0.1.0-beta.6 — unreleased

@@ -1,6 +1,6 @@
 # Releasing
 
-Use CONTRIBUTING.md for every change. The source repository is public and registered in the Ez catalog; the npm package remains private/unreleased. Publication requires a separate reviewed release PR removing the private flag and maintainer authorization. Keep manifest and package versions equal. Versions are immutable once published.
+Use CONTRIBUTING.md for every change. The source repository is public and registered in the Ez catalog; the first public npm candidate is 0.1.0-beta.10. Publication requires the reviewed release preparation PR and maintainer authorization. Keep manifest and package versions equal. Versions are immutable once published.
 
 1. Run `pnpm install --frozen-lockfile`, `pnpm verify`, `npm run release:check`, and `git diff --check`. Review dependency audit results and licenses without automatic fixes. After lockfile changes, copy `pnpm-lock.yaml` to `docker/pnpm-lock.yaml`.
 2. Run `npm pack --ignore-scripts --pack-destination /absolute/temporary-directory`, inspect its file list, hash it, and extract into an empty directory. Rebuild Docker `test` and `runtime` targets from that extracted package. Restore `docker/pnpm-lock.yaml` to the extracted root for a frozen pnpm installation. Check CLI help without state.
@@ -31,12 +31,11 @@ GitHub-hosted Actions, and supports only `X.Y.Z-beta.N` on the npm `beta` tag.
 The Mac performs independent review and isolated artifact tests. No test job
 receives npm credentials and no package code runs in the publishing jobs.
 
-Initial publication remains blocked by `private: true`. A separate reviewed
-release preparation must reconcile existing beta candidates, select matching
-package/manifest versions, inspect the exact packed contents, satisfy the
-fresh-host/provider QA above, and verify repository protection and private
-reporting before removing that flag. This workflow change does not select or
-claim an installable release.
+Initial release preparation reconciles the private beta.7, beta.8 and beta.9
+candidates as beta.10 with matching package/manifest versions. Before publishing,
+inspect the exact packed contents, satisfy the fresh-host/provider QA above,
+and verify repository protection and private reporting. Source preparation
+and removal of the private flag do not establish registry delivery.
 
 The npm package must exist before trusted-publisher enrollment. The account
 owner must complete an authenticated, approved real initial beta publication
