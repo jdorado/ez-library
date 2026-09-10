@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-beta.11
+
+- Prepare the initial public release with the corrected shared publisher. Include reviewed named libraries, Git text history and shared embedding support; requires schema-3-capable core beta.15 or newer.
+- Testing beta; previously documented live-provider and fresh-host acceptance limits remain.
+
 ## 0.1.0-beta.10
 
 - Opt-in shared embedding worker, capped at half a CPU core, with private per-agent indexes.
