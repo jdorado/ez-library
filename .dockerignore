@@ -3,6 +3,7 @@
 !docker/**
 !src/**
 !bin/**
+!scripts/publish-settings.mjs
 !test/**
 !skills/**
 !LICENSE

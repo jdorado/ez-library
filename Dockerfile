@@ -7,6 +7,7 @@ WORKDIR /app
 COPY package.json ./
 COPY src ./src
 COPY bin ./bin
+COPY scripts/publish-settings.mjs ./scripts/publish-settings.mjs
 COPY test ./test
 RUN node --test test/*.test.mjs
 

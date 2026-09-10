@@ -20,6 +20,7 @@
     "test",
     "docker",
     "scripts/release-check.mjs",
+    "scripts/publish-settings.mjs",
     "ez-plugin.json",
     "ez-deployment.json",
     "Dockerfile",
