@@ -19,7 +19,8 @@ export function request(body, socketPath = process.env.EZ_LIBRARY_EMBED_SOCKET) 
         } catch (error) { reject(error); }
       });
     });
-    req.setTimeout(120000, () => req.destroy(Error('Embedding service timed out')));
+    // CPU-limited batches can take minutes; health reads use a separate short deadline.
+    req.setTimeout(body.method === 'health' ? 5000 : 30 * 60 * 1000, () => req.destroy(Error('Embedding service timed out')));
     req.on('error', reject);
     req.end(JSON.stringify({ protocol, model, ...body }));
   });

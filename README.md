@@ -8,7 +8,7 @@ See [existing-folder setup and sync policy](docs/folder-sync.md) and [GitHub-onl
 
 ## Requirements and installation
 
-Use Node 22+, Docker with Compose, and an initialized agent-bound Ez plugin manager supporting deployment schema 3. The runtime has a 4 GiB memory ceiling; optional shared embedding inference uses a separate 2 GiB memory ceiling, roughly 300 MB of model disk and CPU time. GitHub/Drive are optional, separately authorized connections.
+Use Node 22+, Docker with Compose, and an initialized agent-bound Ez plugin manager supporting deployment schema 3. The runtime has a 4 GiB memory ceiling; optional shared embedding inference uses a separate 2 GiB memory ceiling, roughly 300 MB of model disk and a default half-core CPU limit. GitHub/Drive are optional, separately authorized connections.
 
 Install a reviewed checkout or extracted package using the agent's bound `ez`:
 

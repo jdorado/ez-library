@@ -41,6 +41,7 @@ try {
     assert.equal((await docker(['ps', '-aq', '--filter', `name=^/${shared}$`])).trim(), '');
   }
   await Promise.all(homes.map(home => call(home, ['plugins', 'shared-enable', 'library', 'embeddings'])));
+  assert.equal(JSON.parse(await docker(['inspect', shared]))[0].HostConfig.NanoCpus, 500000000);
   console.log('Both clients enabled; waiting for model and private indexes');
   let ready = false;
   for (let attempt = 0; attempt < 120; attempt++) {
@@ -72,7 +73,7 @@ try {
   assert.equal(JSON.parse(await call(homes[1], ['library', 'doctor'])).data.embeddings.service.state, 'unavailable');
   await assert.rejects(query(homes[1], 'ocean travel'));
   assert.match(await call(homes[1], ['library', 'qmd', 'search', 'Starberry', '--json']), /note.md/);
-  console.log(JSON.stringify({ ok: true, sourceRevision: original.revision, checks: ['default-off', 'concurrent-single-worker', 'automatic-private-indexing', 'real-semantic-retrieval', 'private-corpora', 'no-client-model-download', 'worker-restart', 'detach-uninstall-preserves-other-agent', 'unavailable-with-keyword-search'] }));
+  console.log(JSON.stringify({ ok: true, sourceRevision: original.revision, checks: ['default-off', 'concurrent-single-worker', 'half-core-cpu-quota', 'automatic-private-indexing', 'real-semantic-retrieval', 'private-corpora', 'no-client-model-download', 'worker-restart', 'detach-uninstall-preserves-other-agent', 'unavailable-with-keyword-search'] }));
 } finally {
   for (const record of records) await docker(['compose', '-p', record.project, '-f', record.compose, 'down', '--volumes']).catch(() => {});
   await docker(['rm', '-f', shared]).catch(() => {});

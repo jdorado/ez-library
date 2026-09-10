@@ -45,7 +45,8 @@
         "src/embedding-worker.mjs",
         "src/embedding-client.mjs",
         "patches/@tobilu__qmd@2.8.3.patch"
-      ]
+      ],
+      "cpus": 0.5
     }
   }
 }
