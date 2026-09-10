@@ -1,0 +1,9 @@
+*
+!package.json
+!docker/**
+!src/**
+!bin/**
+!test/**
+!skills/**
+!LICENSE
+!THIRD_PARTY_NOTICES.md
