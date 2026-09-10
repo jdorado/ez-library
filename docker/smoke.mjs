@@ -6,11 +6,11 @@ import { randomUUID, createHash } from 'node:crypto';
 const image = process.env.EZ_LIBRARY_IMAGE || 'ez-library:local';
 const volume = 'ez-library-qa-' + randomUUID();
 const docker = (args, input) => execFileSync('docker', args, { input, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: 180000 });
-const models = process.env.EZ_LIBRARY_MODELS_DIR;
+const ipc = process.env.EZ_LIBRARY_EMBED_IPC;
 const lastCpu = Math.max(0, Math.min(4, Number(docker(['info', '--format', '{{.NCPU}}']).trim())) - 1);
 const call = (args, input) => docker(['run', '--rm', '--network', 'none', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
   '--cpuset-cpus', `0-${lastCpu}`, '--memory', '4g', '-i', '-v', volume + ':/state',
-  ...(models ? ['-v', models + ':/state/qmd/cache/qmd/models:ro'] : []),
+  ...(ipc ? ['-v', ipc + ':/inference:ro', '-e', 'EZ_LIBRARY_EMBED_SOCKET=/inference/worker.sock'] : []),
   image, 'node', '/app/bin/ez-library.mjs', ...args], input);
 const parsed = (args, input) => JSON.parse(call(args, input)).data;
 try {
@@ -51,9 +51,9 @@ try {
   assert.match(call(['qmd', 'search', 'passport', '-c', 'library', '--json']), /travel\.md/);
   assert.match(call(['qmd', 'search', 'quasar', '-c', 'library', '--json']), /reading\.txt/);
   assert.match(call(['qmd', 'get', 'qmd://library/notes/travel.md']), /Passport, charger and toothbrush/);
-  if (models) {
+  if (ipc) {
     call(['qmd', 'embed', '--no-gpu', '--max-docs-per-batch', '8']);
     assert.match(call(['qmd', 'query', 'vec: What should I pack for a trip?', '-c', 'library', '--no-rerank', '--json', '-n', '5']), /travel\.md/);
   }
-  console.log(JSON.stringify({ ok: true, checks: ['help-without-state', 'configuration', 'intake-readback', 'idempotency', 'restart-persistence', 'attachment-bytes', 'pdf-extraction-and-retrieval', 'native-qmd-keyword', ...(models ? ['offline-qmd-semantic'] : [])] }));
+  console.log(JSON.stringify({ ok: true, checks: ['help-without-state', 'configuration', 'intake-readback', 'idempotency', 'restart-persistence', 'attachment-bytes', 'pdf-extraction-and-retrieval', 'native-qmd-keyword', ...(ipc ? ['shared-qmd-semantic'] : [])] }));
 } finally { docker(['volume', 'rm', volume]); }

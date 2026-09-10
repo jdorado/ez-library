@@ -5,14 +5,13 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout } from 'node:timers/promises';
 
 const image = process.env.EZ_LIBRARY_IMAGE || 'ez-library:local';
-const models = process.env.EZ_LIBRARY_MODELS_DIR;
-if (!models) throw Error('Set EZ_LIBRARY_MODELS_DIR to an existing QMD models directory for offline semantic QA');
+const ipc = process.env.EZ_LIBRARY_EMBED_IPC;
 const id = 'ez-library-sync-qa-' + randomUUID();
 const docker = (args, input) => execFileSync('docker', args, { input, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: 180000, stdio: ['pipe', 'pipe', 'pipe'] });
 const call = (args, input) => docker(['exec', '-i', id, 'node', '/app/bin/ez-library.mjs', ...args], input);
 const parsed = (args, input) => JSON.parse(call(args, input)).data;
 const edit = script => docker(['exec', '-i', id, 'node', '--input-type=module', '-e', "import * as fs from 'node:fs/promises';\n" + script]);
-const mounts = ['-v', id + ':/state', '-v', id + '-external:/external', '-v', models + ':/state/qmd/cache/qmd/models:ro'];
+const mounts = ['-v', id + ':/state', '-v', id + '-external:/external', ...(ipc ? ['-v', ipc + ':/inference:ro', '-e', 'EZ_LIBRARY_EMBED_SOCKET=/inference/worker.sock'] : [])];
 const start = (worker = false) => docker(['run', '-d', '--name', id, '--network', 'none', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--cpus', '4', '--memory', '4g', ...mounts, image, ...(worker ? [] : ['sleep', 'infinity'])]);
 function pdf(text) {
   const stream = `BT /F1 12 Tf 40 100 Td (${text}) Tj ET`;
@@ -35,9 +34,9 @@ try {
   assert.equal(parsed(['sync-plan', '--remote', '/external']).remoteFiles, 7);
   parsed(['sync-adopt', '--remote', '/external']);
   assert.equal(parsed(['sync-run']).state, 'synced-and-indexed');
-  assert.match(call(['qmd', 'query', 'vec: observing stars at night', '-c', 'library', '--no-rerank', '--json', '-n', '3']), /note/);
+  if (ipc) assert.match(call(['qmd', 'query', 'vec: observing stars at night', '-c', 'library', '--no-rerank', '--json', '-n', '3']), /note/);
   assert.match(call(['qmd', 'search', 'November', '-c', 'library-pdf', '--json']), /lease\.pdf\.md/);
-  assert.match(call(['qmd', 'query', 'vec: When does the lease renew?', '-c', 'library-pdf', '--no-rerank', '--json', '-n', '3']), /lease\.pdf\.md/);
+  if (ipc) assert.match(call(['qmd', 'query', 'vec: When does the lease renew?', '-c', 'library-pdf', '--no-rerank', '--json', '-n', '3']), /lease\.pdf\.md/);
   edit(`await fs.writeFile('/external/lease.pdf',${JSON.stringify(pdf('Lease renewal: December 2033.'))});`);
   parsed(['sync-run']);
   assert.match(call(['qmd', 'search', 'December', '-c', 'library-pdf', '--json']), /lease\.pdf\.md/);
@@ -92,7 +91,7 @@ try {
   }
   assert.equal(parsed(['sync-status']).status.state, 'sync-error');
   assert.match(call(['get', '--path', 'watched.md', '--raw']), /Tangerine/);
-  console.log(JSON.stringify({ ok: true, checks: ['existing-folder-adoption', 'empty-files-and-folders', 'native-semantic-index', 'pdf-automatic-extraction-and-semantic-index', 'pdf-replacement-removes-stale-text', 'external-add-and-index', 'agent-save-and-rename', 'preserve-both-conflicts', 'external-delete-and-rename', 'resident-auto-detection', 'restart-persistence', 'missing-marker-stops-sync'] }));
+  console.log(JSON.stringify({ ok: true, checks: ['existing-folder-adoption', 'empty-files-and-folders', 'native-keyword-index', 'pdf-automatic-extraction', ...(ipc ? ['shared-semantic-index'] : []), 'pdf-replacement-removes-stale-text', 'external-add-and-index', 'agent-save-and-rename', 'preserve-both-conflicts', 'external-delete-and-rename', 'resident-auto-detection', 'restart-persistence', 'missing-marker-stops-sync'] }));
 } finally {
   try { docker(['rm', '-f', id]); } catch {}
   docker(['volume', 'rm', id, id + '-external']);
