@@ -10,8 +10,9 @@ remote advancement is reported as uncertain for reconciliation next cycle.
 On a constrained host, set the Library service environment `EZ_LIBRARY_EMBED=0`
 to keep automatic Git transfer, extraction and full-text indexing without running
 embeddings under the writer lock. Status retains `embedded: false`; semantic
-search is not promised. The default remains automatic embeddings. Removing the
-setting resumes embedding even when original files have not changed.
+search is not promised. Embeddings are off until the shared worker is explicitly enabled. Removing the
+setting resumes embedding only with that worker and a semantic per-library
+policy, even when original files have not changed.
 
 ## Connect without another OAuth login
 

@@ -115,6 +115,16 @@ test('all persistence modes are explicit policy; invalid destinations and creden
   }
 });
 
+test('indexing policy is explicit and legacy settings remain valid', () => {
+  for (const mode of ['keyword', 'semantic']) {
+    assert.equal(validateSettings({ ...defaults(), indexing: { mode } }).indexing.mode, mode);
+  }
+  for (const indexing of [{ mode: 'automatic' }, { mode: 'keyword', fallback: 'semantic' }, {}]) {
+    assert.throws(() => validateSettings({ ...defaults(), indexing }), code('INVALID'));
+  }
+  assert.deepEqual(validateSettings(defaults()), defaults());
+});
+
 test('configuration survives restart and doctor never equates settings with cloud verification', async t => {
   const root = await fixture(t);
   const config = { ...defaults(), storage: { mode: 'drive', drive: { connection: 'account', folderId: 'folder' } } };

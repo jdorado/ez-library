@@ -4,13 +4,18 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@tobilu/qmd@2.8.3':
+    hash: fa9176bf3d107b767474ca5d769c8e32c9711e6c38201e4b563deaae0de0b783
+    path: patches/@tobilu__qmd@2.8.3.patch
+
 importers:
 
   .:
     dependencies:
       '@tobilu/qmd':
         specifier: 2.8.3
-        version: 2.8.3(typescript@5.9.3)
+        version: 2.8.3(patch_hash=fa9176bf3d107b767474ca5d769c8e32c9711e6c38201e4b563deaae0de0b783)(typescript@5.9.3)
 
 packages:
 
@@ -888,7 +893,7 @@ snapshots:
 
   '@tinyhttp/content-disposition@2.2.4': {}
 
-  '@tobilu/qmd@2.8.3(typescript@5.9.3)':
+  '@tobilu/qmd@2.8.3(patch_hash=fa9176bf3d107b767474ca5d769c8e32c9711e6c38201e4b563deaae0de0b783)(typescript@5.9.3)':
     dependencies:
       '@modelcontextprotocol/server': 2.0.0
       better-sqlite3: 13.0.3

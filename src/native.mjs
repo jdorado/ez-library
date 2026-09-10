@@ -6,7 +6,8 @@ import { fail } from './store.mjs';
 export function environment(root) {
   return { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: path.join(root, 'qmd'),
     XDG_CONFIG_HOME: path.join(root, 'qmd/config'), XDG_CACHE_HOME: path.join(root, 'qmd/cache'),
-    QMD_CONFIG_DIR: path.join(root, 'qmd/config/qmd'), LANG: 'C.UTF-8',
+    QMD_CONFIG_DIR: path.join(root, 'qmd/config/qmd'), QMD_EMBED_MODULE: new URL('./embedding-client.mjs', import.meta.url).href,
+    ...(process.env.EZ_LIBRARY_EMBED_SOCKET ? { EZ_LIBRARY_EMBED_SOCKET: process.env.EZ_LIBRARY_EMBED_SOCKET } : {}), LANG: 'C.UTF-8',
     RCLONE_CONFIG: path.join(root, 'sync/rclone.conf') };
 }
 export function native(root, executable, args, { inherit = false, env = {}, input } = {}) {
@@ -36,6 +37,7 @@ export async function rclone(root, args, options) {
   return native(root, '/usr/local/bin/rclone', args, options);
 }
 export async function qmd(root, args) {
+  if (args.includes('pull')) throw Error('Library does not download per-agent models; enable shared embeddings through Ez');
   const cli = fileURLToPath(new URL('./cli/qmd.js', import.meta.resolve('@tobilu/qmd')));
   return native(root, process.execPath, [cli, ...args]);
 }

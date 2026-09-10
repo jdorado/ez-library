@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "services": {
     "library": {
       "buildTarget": "runtime",
@@ -21,6 +21,32 @@
         "node",
         "/app/bin/ez-library.mjs"
       ]
+    }
+  },
+  "sharedServices": {
+    "embeddings": {
+      "identity": "qmd-embeddings-v1",
+      "buildTarget": "embeddings",
+      "memoryMiB": 2048,
+      "healthcheck": [
+        "node",
+        "/app/src/embedding-worker.mjs",
+        "--health"
+      ],
+      "clients": [
+        "library"
+      ],
+      "clientEnvironment": {
+        "EZ_LIBRARY_EMBED_SOCKET": "/inference/worker.sock"
+      },
+      "files": [
+        "Dockerfile",
+        "docker/pnpm-lock.yaml",
+        "src/embedding-worker.mjs",
+        "src/embedding-client.mjs",
+        "patches/@tobilu__qmd@2.8.3.patch"
+      ],
+      "cpus": 0.5
     }
   }
 }

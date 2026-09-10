@@ -1,7 +1,6 @@
 {
   "name": "@jc_stack/ez-library",
-  "version": "0.1.0-beta.7",
-  "private": true,
+  "version": "0.1.0-beta.10",
   "publishConfig": { "access": "public", "tag": "latest" },
   "description": "Dockerized agent library files, QMD retrieval and explicit persistence settings",
   "type": "module",
@@ -30,7 +29,8 @@
     "CONTRIBUTING.md",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "patches"
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs",
@@ -45,7 +45,10 @@
     "onlyBuiltDependencies": [
       "better-sqlite3",
       "node-llama-cpp"
-    ]
+    ],
+    "patchedDependencies": {
+      "@tobilu/qmd@2.8.3": "patches/@tobilu__qmd@2.8.3.patch"
+    }
   },
   "repository": {
     "type": "git",

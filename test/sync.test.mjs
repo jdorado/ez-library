@@ -5,6 +5,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { put, organize, operation, hash } from '../src/store.mjs';
 import { syncAdopt, syncPlan, syncRun, syncStatus, syncPolicy } from '../src/sync.mjs';
 import { environment } from '../src/native.mjs';
@@ -17,6 +18,36 @@ async function fixture(t) {
 }
 const save = (root, name, text) => put(root, name, Readable.from([text]), { key: hash(name), expected: 'new' });
 const nativeAvailable = existsSync('/usr/local/bin/rclone');
+
+test('provider folder identity resolves real parent entries and rejects missing or ambiguous ancestors', async t => {
+  const { root } = await fixture(t);
+  execFileSync(process.execPath, ['--experimental-test-module-mocks', '--input-type=module', '-e', `
+    import { mock } from 'node:test';
+    import assert from 'node:assert/strict';
+    const native = await import('./src/native.mjs');
+    let mode = 'valid';
+    const visited = [];
+    mock.module('./src/native.mjs', { namedExports: { ...native, rclone: async (_, args) => {
+      if (args[0] === 'config') return { code: 0, stdout: JSON.stringify({ cloud: { type: 'drive' } }) };
+      if (args.includes('--recursive')) return { code: 0, stdout: '[]' };
+      assert(args.includes('--dirs-only'));
+      visited.push(args[1]);
+      const ancestor = args[1] === 'cloud:';
+      const entry = { IsDir: true, Path: ancestor ? 'personal' : 'notes', ID: ancestor ? 'parent-id' : 'vault-id' };
+      let entries = [entry];
+      if (mode === 'missing' && !ancestor) entries = [];
+      if (mode === 'duplicate' && ancestor) entries.push({ ...entry, ID: 'other-parent' });
+      if (mode === 'no-id' && !ancestor) delete entry.ID;
+      return { code: 0, stdout: JSON.stringify(entries) };
+    } } });
+    const { syncPlan } = await import('./src/sync.mjs');
+    assert.equal((await syncPlan(${JSON.stringify(root)}, 'cloud:personal/notes')).identity, 'drive:vault-id');
+    assert.deepEqual(visited, ['cloud:', 'cloud:personal']);
+    for (mode of ['missing', 'duplicate', 'no-id']) {
+      await assert.rejects(syncPlan(${JSON.stringify(root)}, 'cloud:personal/notes'), { code: 'CONFLICT' });
+    }
+  `], { cwd: new URL('..', import.meta.url), stdio: 'pipe' });
+});
 
 test('organization preserves bytes/history and refuses stale or occupied paths', async t => {
   const { root } = await fixture(t);

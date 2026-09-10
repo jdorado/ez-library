@@ -8,7 +8,11 @@ import { pipeline } from 'node:stream/promises';
 import { constants } from 'node:fs';
 import { fail, rootDir, locked, settings, validateSettings, put, operation, organize, list, safePath, digest, jsonBytes, defaults } from './store.mjs';
 import { syncPlan, syncAdopt, syncPolicy, syncRun, syncStatus } from './sync.mjs';
-import { rclone } from './native.mjs';
+import { rclone, environment } from './native.mjs';
+import { indexStatus } from './indexer.mjs';
+import { embeddingStatus } from './embedding-client.mjs';
+import { addLibrary, selectLibrary, sources, searchLibraries } from './libraries.mjs';
+import { mirrorAdopt, mirrorStatus, mirrorPolicy } from './git-mirror.mjs';
 import { gitKey, gitAdopt, git } from './git-sync.mjs';
 
 const version = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url))).version;
@@ -16,6 +20,11 @@ const emit = data => process.stdout.write(JSON.stringify({ ok: true, data }) + '
 const help = `ez-library ${version}
 Local library files, QMD retrieval, and persistence settings.
 
+  sources                         List names, purposes, destinations and sync status
+  source-add --name NAME --description TEXT  Add an isolated local library
+  search QUERY [--library NAME | --all] [--limit 5]  QMD keyword results by library
+  COMMAND --library NAME ...       Select a library (required when more than one)
+  qmd|git|rclone --library NAME ... Selector must precede native arguments
   doctor                          Read-only local readiness; no remote proof
   settings                        Show settings and revision hash
   configure --expected HASH|new --key KEY < settings.json
@@ -33,6 +42,9 @@ Local library files, QMD retrieval, and persistence settings.
   sync-status                    Binding, last sync, extraction and embedding status
   sync-run                       Reconcile now and refresh the index
   sync-policy --expected HASH --mode paused|two-way [--interval 60]
+  git-mirror-adopt --repository OWNER/REPO [--branch main] [--extensions .md,.txt] [--exclude-directories private,archive]
+  git-mirror-status              Text-only GitHub history destination and revision
+  git-mirror-policy --expected HASH --mode paused|one-way
   git-key --repository OWNER/REPO  Create a repository key; return public key only
   git-adopt --repository OWNER/REPO [--branch main] Import and enable native Git sync
   git ...                        Native Git in the bound Library working tree
@@ -49,11 +61,10 @@ QMD returns its native exit code. See the packaged library skill for onboarding.
 `;
 
 export function qmdEnvironment(root) {
-  return { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: path.join(root, 'qmd'),
-    XDG_CONFIG_HOME: path.join(root, 'qmd', 'config'), XDG_CACHE_HOME: path.join(root, 'qmd', 'cache'),
-    QMD_CONFIG_DIR: path.join(root, 'qmd', 'config', 'qmd'), LANG: 'C.UTF-8' };
+  return environment(root);
 }
 async function runQmd(root, args) {
+  if (args.includes('pull')) fail('INVALID', 'Library does not download per-agent models; enable shared embeddings through Ez');
   const cli = fileURLToPath(new URL('./cli/qmd.js', import.meta.resolve('@tobilu/qmd')));
   return locked(root, root => runNative(root, process.execPath, [cli, ...args]));
 }
@@ -83,8 +94,44 @@ export async function main(argv = process.argv.slice(2)) {
   try {
     if (!argv.length || argv[0] === '--help' || argv[0] === 'help') { process.stdout.write(help); return; }
     if (argv[0] === '--version') { process.stdout.write(version + '\n'); return; }
-    const [command, ...rest] = argv;
-    const root = process.env.EZ_LIBRARY_STATE || '/state';
+    const [command, ...args] = argv;
+    const base = process.env.EZ_LIBRARY_STATE || '/state';
+    if (command === 'sources') {
+      parseArgs({ args, options: { json: { type: 'boolean' } }, strict: true });
+      emit(await sources(base)); return;
+    }
+    if (command === 'source-add') {
+      const { values } = parseArgs({ args, options: { name: { type: 'string' }, description: { type: 'string' } }, strict: true });
+      emit(await addLibrary(base, values.name, values.description)); return;
+    }
+    // Native argv is otherwise untouched; never consume a provider's own flags.
+    let name;
+    const rest = [...args];
+    if (['qmd', 'git', 'rclone'].includes(command)) {
+      if (rest[0] === '--library') { rest.shift(); name = rest.shift(); if (!name) fail('INVALID', 'Supply --library NAME'); }
+      else if (rest[0]?.startsWith('--library=')) name = rest.shift().slice(10);
+    } else {
+      for (let i = 0; i < rest.length; i++) {
+        if (rest[i] === '--') break;
+        if (rest[i] === '--library' || rest[i].startsWith('--library=')) {
+          if (name !== undefined) fail('INVALID', 'Supply --library only once');
+          const token = rest.splice(i, 1)[0];
+          name = token === '--library' ? rest.splice(i, 1)[0] : token.slice(10);
+          if (!name || name.startsWith('--')) fail('INVALID', 'Supply --library NAME');
+          i--;
+        }
+      }
+    }
+    if (name === '') fail('INVALID', 'Supply --library NAME');
+    if (command === 'search') {
+      const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: { all: { type: 'boolean' }, limit: { type: 'string' }, json: { type: 'boolean' } }, strict: true });
+      if (positionals.length !== 1) fail('INVALID', 'Supply one quoted search query');
+      const result = await searchLibraries(base, { name, all: values.all, query: positionals[0], limit: values.limit === undefined ? 5 : Number(values.limit) });
+      process.stdout.write(JSON.stringify({ ok: result.complete, data: result }) + '\n');
+      if (!result.complete) process.exitCode = 4;
+      return;
+    }
+    const { root } = await selectLibrary(base, name);
     if (command === 'qmd') { process.exitCode = await runQmd(root, rest); return; }
     if (command === 'git') {
       process.exitCode = await locked(root, async root => {
@@ -103,16 +150,20 @@ export async function main(argv = process.argv.slice(2)) {
       get: ['path', 'raw'], 'pdf-text': ['path'], list: ['prefix', 'limit'], operation: ['key'],
       'sync-plan': ['remote'], 'sync-adopt': ['remote'], 'sync-status': [], 'sync-run': [],
       move: ['path', 'to', 'expected', 'key'], remove: ['path', 'expected', 'key'],
+      'git-mirror-adopt': ['repository', 'branch', 'extensions', 'exclude-directories'], 'git-mirror-status': [], 'git-mirror-policy': ['expected', 'mode'],
       'git-key': ['repository'], 'git-adopt': ['repository', 'branch'],
       'sync-policy': ['expected', 'mode', 'interval'] }[command];
     if (!allowed) fail('INVALID', 'Unknown command; use --help');
     const { values: opts } = parseArgs({ args: rest, options: Object.fromEntries([...allowed, 'json'].map(k => [k, { type: ['json', 'raw'].includes(k) ? 'boolean' : 'string' }])), strict: true });
-    if (command === 'sync-plan') { emit(await syncPlan(root, opts.remote)); return; }
+    if (command === 'sync-plan') { emit(await syncPlan(root, opts.remote, base)); return; }
+    if (command === 'git-mirror-adopt') { emit(await mirrorAdopt(root, opts.repository, opts.branch, opts.extensions, base, opts['exclude-directories'])); return; }
+    if (command === 'git-mirror-status') { emit(await mirrorStatus(root)); return; }
+    if (command === 'git-mirror-policy') { emit(await mirrorPolicy(root, opts.expected, opts.mode)); return; }
     if (command === 'git-key') { emit(await gitKey(root, opts.repository)); return; }
-    if (command === 'git-adopt') { emit(await gitAdopt(root, opts.repository, opts.branch)); return; }
-    if (command === 'sync-adopt') { emit(await syncAdopt(root, opts.remote)); return; }
+    if (command === 'git-adopt') { emit(await gitAdopt(root, opts.repository, opts.branch, base)); return; }
+    if (command === 'sync-adopt') { emit(await syncAdopt(root, opts.remote, base)); return; }
     if (command === 'sync-status') { emit(await syncStatus(root)); return; }
-    if (command === 'sync-run') { emit(await syncRun(root)); return; }
+    if (command === 'sync-run') { emit(await syncRun(root, base)); return; }
     if (command === 'sync-policy') { emit(await syncPolicy(root, { expected: opts.expected, mode: opts.mode, intervalSeconds: opts.interval === undefined ? 60 : Number(opts.interval) })); return; }
     if (['move', 'remove'].includes(command)) {
       if (!opts.path || (command === 'move' && !opts.to)) fail('INVALID', 'Supply source and, for move, destination paths');
@@ -133,7 +184,7 @@ export async function main(argv = process.argv.slice(2)) {
       let qmdAvailable = true;
       try { import.meta.resolve('@tobilu/qmd'); } catch { qmdAvailable = false; }
       emit({ version, state: root, configured, qmdAvailable, storageMode: value.settings.storage.mode,
-        folderSync: await syncStatus(root),
+        folderSync: await syncStatus(root), embeddings: { service: await embeddingStatus(), index: await indexStatus(root) },
         cloudPersistence: value.settings.storage.mode === 'local' ? 'disabled' : 'configured-not-verified',
         backup: value.settings.backup.mode === 'off' ? 'disabled' : 'configured-not-verified' }); return;
     }
