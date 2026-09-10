@@ -6,6 +6,15 @@ A separate Dockerized plugin for an agent's files and QMD search. Preserve origi
 
 See [existing-folder setup and sync policy](docs/folder-sync.md) and [GitHub-only two-way sync](docs/github-sync.md).
 
+## Multiple libraries
+
+Use [named libraries](docs/named-libraries.md) for independent repositories or
+folders in one installation. `sources` lists names and destinations;
+`source-add --name work --description 'Company documentation'` creates isolated
+local state. Add `--library work` to onboarding and file commands. Once multiple
+libraries exist, selection is required. `search 'query' --all` returns labelled
+QMD results. Existing files remain in `default` without migration.
+
 ## Requirements and installation
 
 Use Node 22+, Docker with Compose, and an initialized agent-bound Ez plugin manager supporting deployment schema 2. The runtime has a 4 GiB memory ceiling; semantic models additionally need roughly 2.1 GB disk and CPU time. GitHub/Drive are optional, separately authorized connections.

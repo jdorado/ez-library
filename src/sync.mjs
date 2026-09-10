@@ -25,11 +25,12 @@ async function prepare(root) {
   catch (e) { if (e.code !== 'EEXIST') throw e; }
 }
 
-async function remoteIdentity(root, remote) {
+async function remoteIdentity(root, remote, stateRoot = root) {
   if (typeof remote !== 'string' || !remote || /[\x00-\x1f\\]/.test(remote)) fail('INVALID', 'Supply a native rclone remote:path or absolute folder');
   if (path.isAbsolute(remote)) {
     const real = await fs.realpath(remote);
-    if (real !== remote || real === root || real.startsWith(root + '/') || root.startsWith(real + '/')) fail('UNSAFE_PATH', 'Sync folder must be real and outside Library state');
+    stateRoot = await fs.realpath(stateRoot);
+    if (real !== remote || real === stateRoot || real.startsWith(stateRoot + '/') || stateRoot.startsWith(real + '/')) fail('UNSAFE_PATH', 'Sync folder must be real and outside Library state');
     const stat = await fs.lstat(real);
     if (!stat.isDirectory()) fail('UNSAFE_PATH', 'Expected an existing folder');
     return `local:${stat.dev}:${stat.ino}`;
@@ -46,8 +47,8 @@ async function remoteIdentity(root, remote) {
   return `${profile.type}:${stat.ID}`;
 }
 
-async function inspect(root, remote) {
-  const identity = await remoteIdentity(root, remote);
+async function inspect(root, remote, stateRoot) {
+  const identity = await remoteIdentity(root, remote, stateRoot);
   const entries = JSON.parse(succeeded(await rclone(root, ['lsjson', remote, '--recursive', '--hash', '--exclude', '.*', '--exclude', '.*/**', ...common]), 'Folder inventory'));
   const seen = new Set();
   for (const file of entries) {
@@ -65,10 +66,10 @@ export async function syncStatus(root) {
     index: await readJSON(path.join(root, 'sync/index.json')) };
 }
 
-export async function syncPlan(root, remote) {
+export async function syncPlan(root, remote, stateRoot = root) {
   return locked(root, async root => {
     await prepare(root);
-    const plan = await inspect(root, remote);
+    const plan = await inspect(root, remote, stateRoot);
     const local = await inventory(path.join(root, 'files'));
     const check = local.length ? await rclone(root, ['check', path.join(root, 'files'), remote, '--one-way', '--download', '--exclude', marker, ...common]) : { code: 0 };
     return { remote, identity: plan.identity, remoteFiles: plan.files.length, localFiles: local.length,
@@ -88,11 +89,11 @@ function bisyncArgs(root, config, initial = false) {
     ...(initial ? ['--resync-mode', 'path2'] : []), ...common];
 }
 
-export async function syncAdopt(root, remote) {
+export async function syncAdopt(root, remote, stateRoot = root) {
   return locked(root, async root => {
     await prepare(root);
     if (await readJSON(location(root))) fail('CONFLICT', 'A folder is already bound; inspect sync-status rather than replacing it');
-    const plan = await inspect(root, remote);
+    const plan = await inspect(root, remote, stateRoot);
     const files = path.join(root, 'files');
     if ((await inventory(files)).some(f => f.path !== marker)) {
       const check = await rclone(root, ['check', files, remote, '--one-way', '--download', '--exclude', marker, ...common]);
@@ -102,7 +103,7 @@ export async function syncAdopt(root, remote) {
     // allowed only here; the recurring worker never resets its baseline.
     succeeded(await rclone(root, ['copy', remote, files, '--ignore-existing', '--create-empty-src-dirs', '--exclude', '.*', '--exclude', '.*/**', ...common]), 'Initial folder import');
     succeeded(await rclone(root, ['check', remote, files, '--one-way', '--download', '--exclude', '.*', '--exclude', '.*/**', ...common]), 'Imported byte verification');
-    if (await remoteIdentity(root, remote) !== plan.identity) fail('CONFLICT', 'Folder identity changed during adoption');
+    if (await remoteIdentity(root, remote, stateRoot) !== plan.identity) fail('CONFLICT', 'Folder identity changed during adoption');
     if (!plan.files.some(f => f.Path === marker)) {
       await fs.writeFile(path.join(files, marker), 'Library sync access marker. Removing this file pauses synchronization.\n', { mode: 0o600, flag: 'wx' });
       succeeded(await rclone(root, ['copyto', path.join(files, marker), remote + '/' + marker, '--immutable', ...common]), 'Sync access marker');
@@ -130,7 +131,7 @@ export async function syncPolicy(root, { expected, mode, intervalSeconds = 60 })
   });
 }
 
-export async function syncRun(root) {
+export async function syncRun(root, stateRoot = root) {
   return locked(root, async root => {
     await prepare(root);
     const config = await readJSON(location(root));
@@ -140,7 +141,7 @@ export async function syncRun(root) {
     try {
       if (config.backend === 'git') status.git = await gitTransfer(root, config);
       else {
-        if (await remoteIdentity(root, config.remote) !== config.identity) fail('CONFLICT', 'Mapped folder disappeared or changed identity; no automatic recreation');
+        if (await remoteIdentity(root, config.remote, stateRoot) !== config.identity) fail('CONFLICT', 'Mapped folder disappeared or changed identity; no automatic recreation');
         succeeded(await rclone(root, bisyncArgs(root, config)), 'Native bisync');
       }
       status = { ...status, state: 'indexing', syncedAt: new Date().toISOString() };

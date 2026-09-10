@@ -55,5 +55,19 @@ try {
     call(['qmd', 'embed', '--no-gpu', '--max-docs-per-batch', '8']);
     assert.match(call(['qmd', 'query', 'vec: What should I pack for a trip?', '-c', 'library', '--no-rerank', '--json', '-n', '5']), /travel\.md/);
   }
-  console.log(JSON.stringify({ ok: true, checks: ['help-without-state', 'configuration', 'intake-readback', 'idempotency', 'restart-persistence', 'attachment-bytes', 'pdf-extraction-and-retrieval', 'native-qmd-keyword', ...(models ? ['offline-qmd-semantic'] : [])] }));
+  parsed(['source-add', '--name', 'work', '--description', 'Synthetic work notes']);
+  assert.equal(parsed(['sources']).selectionRequired, true);
+  assert.throws(() => call(['put', '--path', 'notes/travel.md', '--expected', 'new', '--key', 'ambiguous'], 'wrong'), error => error.status === 2);
+  parsed(['put', '--library', 'work', '--path', 'notes/travel.md', '--expected', 'new', '--key', 'travel'], '# Work\nPassport approval policy.');
+  call(['qmd', '--library', 'work', 'collection', 'add', '/state/libraries/work/files', '--name', 'library', '--mask', '**/*.{md,txt}']);
+  const combined = parsed(['search', 'passport', '--all']);
+  assert.equal(combined.complete, true);
+  assert.deepEqual(combined.libraries.map(x => x.library), ['default', 'work']);
+  for (const item of combined.libraries) {
+    assert.equal(item.results[0].library, item.library);
+    assert.match(item.results[0].file, /travel\.md/);
+  }
+  assert.equal(call(['get', '--library', 'default', '--path', 'notes/travel.md', '--raw']), note);
+  assert.match(call(['get', '--library', 'work', '--path', 'notes/travel.md', '--raw']), /approval policy/);
+  console.log(JSON.stringify({ ok: true, checks: ['help-without-state', 'configuration', 'intake-readback', 'idempotency', 'restart-persistence', 'attachment-bytes', 'pdf-extraction-and-retrieval', 'native-qmd-keyword', 'named-library-isolation-and-search', ...(models ? ['offline-qmd-semantic'] : [])] }));
 } finally { docker(['volume', 'rm', volume]); }
