@@ -17,6 +17,14 @@ function excludedDirectories(value = '') {
   }
   return directories;
 }
+async function pruneEmptyDirectories(directory) {
+  for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const child = path.join(directory, entry.name);
+    await pruneEmptyDirectories(child);
+    await fs.rmdir(child).catch(error => { if (error.code !== 'ENOTEMPTY' && error.code !== 'EEXIST') throw error; });
+  }
+}
 export async function mirrorStatus(root) {
   await safePath(root, 'sync/text-mirror.json');
   const config = await fs.readFile(file(root), 'utf8').then(JSON.parse).catch(e => { if (e.code === 'ENOENT') return null; throw e; });
@@ -93,6 +101,7 @@ export async function mirrorTransfer(root) {
   for (const old of await inventory(target)) {
     if (!selectedPaths.has(old.path)) await fs.unlink(await safePath(root, 'sync/text-mirror/files/' + old.path));
   }
+  await pruneEmptyDirectories(target);
   for (const item of selected) {
     const destination = await safePath(root, 'sync/text-mirror/files/' + item.path, true);
     await fs.copyFile(await safePath(root, 'files/' + item.path), destination);

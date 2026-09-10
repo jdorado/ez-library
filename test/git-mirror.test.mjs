@@ -98,3 +98,24 @@ test('text mirror rejects unsafe excluded directory prefixes and accepts legacy 
   assert.equal((await mirrorStatus(root)).config.excludeDirectories, undefined);
   assert.equal((await cycle()).remoteVerified, true);
 });
+
+
+test('text mirror handles directory and file replacements and retries with empty projection directories', async t => {
+  const { root, remote, git, cycle } = await fixture(t);
+  const originals = path.join(root, 'files');
+  await fs.mkdir(path.join(originals, 'topic.md/deep'), { recursive: true });
+  await fs.writeFile(path.join(originals, 'topic.md/deep/a.txt'), 'nested');
+  await mirrorAdopt(root, remote); const first = await cycle();
+  await fs.rm(path.join(originals, 'topic.md'), { recursive: true });
+  await fs.writeFile(path.join(originals, 'topic.md'), 'replacement');
+  // Empty directories may survive an interrupted previous projection pass.
+  await fs.mkdir(path.join(root, 'sync/text-mirror/files/topic.md/empty/deeper'), { recursive: true });
+  assert.equal((await cycle()).remoteVerified, true);
+  assert.equal(git(['--git-dir', remote, 'show', 'main:topic.md']), 'replacement');
+  assert.equal(git(['--git-dir', remote, 'show', first.commit + ':topic.md/deep/a.txt']), 'nested');
+  await fs.unlink(path.join(originals, 'topic.md'));
+  await fs.mkdir(path.join(originals, 'topic.md'));
+  await fs.writeFile(path.join(originals, 'topic.md/b.txt'), 'restored folder');
+  assert.equal((await cycle()).remoteVerified, true);
+  assert.equal(git(['--git-dir', remote, 'show', 'main:topic.md/b.txt']), 'restored folder');
+});
