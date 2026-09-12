@@ -74,8 +74,11 @@ key through the GitHub plugin and deleting that repository key explicitly.
 This backend mirrors a repository branch, not an arbitrary subdirectory of an
 unrelated repository. Git tracks empty files but not empty directories. Native
 Git attributes/normalization apply. Hidden originals receive the same safety and
-size checks as visible files. Ignored Library files block a claim
-of full synchronization rather than silently disappearing. Symlinks/submodules,
+size checks as visible files. Git-ignored untracked files remain local and do
+not block synchronization or count toward Git upload size limits. Tracked files
+continue to sync even when an ignore pattern matches them. Incoming tracked
+files cannot overwrite ignored local files; resolve that collision before syncing.
+Symlinks/submodules,
 Git LFS content and ordinary files at or above 100 MiB are unsupported. Hybrid
 automatic routing is not supplied. Repository rules may reject direct pushes;
 that rejection remains a pending sync error rather than being bypassed.
