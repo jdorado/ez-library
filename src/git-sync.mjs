@@ -126,7 +126,7 @@ export async function gitTransfer(root, config) {
   succeeded(await git(root, config, ['fetch', '--no-tags', 'origin', 'refs/heads/' + config.branch]), 'Fetch remote changes');
   await tree(root, config, 'FETCH_HEAD');
   const head = succeeded(await git(root, config, ['rev-parse', 'HEAD']), 'Read local commit').trim();
-  const merge = await git(root, config, ['merge', '--no-edit', '--no-gpg-sign', 'FETCH_HEAD']);
+  const merge = await git(root, config, ['merge', '--no-overwrite-ignore', '--no-edit', '--no-gpg-sign', 'FETCH_HEAD']);
   if (merge.code !== 0) {
     if (succeeded(await git(root, config, ['ls-files', '--unmerged']), 'Inspect conflicts')) fail('CONFLICT', 'Both revisions retained in Git merge stages. Resolve the merge before sync/indexing resumes');
     succeeded(merge, 'Merge remote changes');

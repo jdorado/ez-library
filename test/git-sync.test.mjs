@@ -120,6 +120,18 @@ test('changed Hybrid policy or bound remote stops Git before any upload', async 
   await assert.rejects(cycle(root, config), { code: 'CONFLICT' });
 });
 
+test('an incoming tracked file cannot overwrite an ignored local original', async t => {
+  const { root, remote, external, outside, publish } = await setup(t);
+  await fs.writeFile(path.join(external, '.gitignore'), '*.cache\n'); publish();
+  const { config } = await gitAdopt(root, remote);
+  await fs.writeFile(path.join(root, 'files/local.cache'), 'Retain local bytes\n');
+  await fs.writeFile(path.join(external, 'local.cache'), 'Incoming bytes\n');
+  outside(['-C', external, 'add', '-f', '--', 'local.cache']); publish();
+  await assert.rejects(cycle(root, config));
+  assert.equal(await fs.readFile(path.join(root, 'files/local.cache'), 'utf8'), 'Retain local bytes\n');
+  assert.equal(outside(['--git-dir', remote, 'show', 'main:local.cache']), 'Incoming bytes\n');
+});
+
 test('hidden originals obey Git safety and size checks before any push', async t => {
   const { root, remote, outside } = await setup(t);
   const { config } = await gitAdopt(root, remote);
