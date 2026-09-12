@@ -114,12 +114,11 @@ export async function gitTransfer(root, config) {
   const conflict = succeeded(await git(root, config, ['ls-files', '--unmerged']), 'Inspect merge state');
   if (conflict) fail('CONFLICT', 'Git merge unresolved; use native git status/show/add to resolve both retained versions before syncing');
   const files = await inventory(path.join(root, 'files'), '', { includeHidden: true });
-  if (files.some(f => f.bytes >= 100 * 1024 * 1024)) fail('TOO_LARGE', 'GitHub ordinary files must be below 100 MiB; select another storage mode for larger media');
+  const ignored = new Set(succeeded(await git(root, config, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z']), 'Inspect ignored files').split('\0').filter(Boolean));
+  if (files.some(f => !ignored.has(f.path) && f.bytes >= 100 * 1024 * 1024)) fail('TOO_LARGE', 'GitHub ordinary files must be below 100 MiB; select another storage mode for larger media');
   succeeded(await git(root, config, ['add', '--all', '--', '.']), 'Stage Library changes');
   const stagedTree = succeeded(await git(root, config, ['write-tree']), 'Read staged tree').trim();
   await tree(root, config, stagedTree);
-  const ignored = succeeded(await git(root, config, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z']), 'Inspect ignored files').split('\0').filter(Boolean);
-  if (ignored.some(name => files.some(file => file.path === name))) fail('CONFLICT', 'Library files are excluded by repository ignore rules; reconcile the rules before claiming synchronization');
   const diff = await git(root, config, ['diff', '--cached', '--quiet']);
   if (![0, 1].includes(diff.code)) succeeded(diff, 'Inspect staged changes');
   const merging = await git(root, config, ['rev-parse', '--verify', 'MERGE_HEAD']);

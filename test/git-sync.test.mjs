@@ -76,17 +76,35 @@ test('missing remote retains local commits for retry, and symlink changes cannot
   await assert.rejects(fs.lstat(path.join(root, 'files/unsafe')), { code: 'ENOENT' });
 });
 
-test('adoption preserves mismatching local files and ignore rules cannot hide unsynced originals', async t => {
+test('adoption preserves mismatching local files and validates repository names', async t => {
   const first = await setup(t);
   await put(first.root, 'note0.md', Readable.from(['Keep local']), { expected: 'new', key: 'local' });
   await assert.rejects(gitAdopt(first.root, first.remote), { code: 'CONFLICT' });
   assert.equal(await fs.readFile(path.join(first.root, 'files/note0.md'), 'utf8'), 'Keep local');
-  const second = await setup(t);
-  await fs.writeFile(path.join(second.external, '.gitignore'), '*.pdf\n'); second.publish();
-  const { config } = await gitAdopt(second.root, second.remote);
-  await put(second.root, 'original.pdf', Readable.from(['PDF fixture']), { expected: 'new', key: 'pdf' });
-  await assert.rejects(cycle(second.root, config), { code: 'CONFLICT' });
   for (const invalid of ['https://token@github.com/owner/repo', 'owner/../repo', '-option', 'owner/.git']) assert.throws(() => repositoryURL(invalid), { code: 'INVALID' });
+});
+
+test('Git ignore rules leave caches local while tracked and eligible files sync', async t => {
+  const { root, remote, outside } = await setup(t);
+  const { config } = await gitAdopt(root, remote);
+  await fs.writeFile(path.join(root, 'files/.gitignore'), '__pycache__/\n*.bin\nnote0.md\n!keep.bin\n');
+  await fs.mkdir(path.join(root, 'files/__pycache__'));
+  await fs.writeFile(path.join(root, 'files/__pycache__/module.pyc'), 'cache');
+  const large = await fs.open(path.join(root, 'files/cache.bin'), 'w');
+  await large.truncate(100 * 1024 * 1024); await large.close();
+  await fs.writeFile(path.join(root, 'files/note0.md'), 'Tracked change\n');
+  await fs.writeFile(path.join(root, 'files/research.md'), 'Research\n');
+  await fs.writeFile(path.join(root, 'files/keep.bin'), 'Explicitly included\n');
+  const result = await cycle(root, config);
+  assert.equal(result.remoteVerified, true);
+  assert.equal(outside(['--git-dir', remote, 'show', 'main:note0.md']), 'Tracked change\n');
+  assert.equal(outside(['--git-dir', remote, 'show', 'main:research.md']), 'Research\n');
+  assert.equal(outside(['--git-dir', remote, 'show', 'main:keep.bin']), 'Explicitly included\n');
+  const names = outside(['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'main']);
+  assert.doesNotMatch(names, /cache.bin|module.pyc/);
+  assert.equal(await fs.readFile(path.join(root, 'files/__pycache__/module.pyc'), 'utf8'), 'cache');
+  assert.equal((await fs.stat(path.join(root, 'files/cache.bin'))).size, 100 * 1024 * 1024);
+  assert.equal((await cycle(root, config)).commit, result.commit);
 });
 
 test('changed Hybrid policy or bound remote stops Git before any upload', async t => {
