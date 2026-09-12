@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-beta.13
+
+- Respect Git ignore rules during sync: ignored caches remain local without blocking valid files. Preserve merge-conflict and overwrite protections.
+
 ## 0.1.0-beta.12
 
 - Prepare a new release with npm publishing-settings verification included. Package trust and registry delivery are verified separately from local release checks.
