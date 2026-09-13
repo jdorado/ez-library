@@ -74,3 +74,9 @@ accepted. Exclusions are persisted exactly, including similarly named subtrees.
 Use `git-mirror-policy` to pause a standalone mirror. A paused folder binding
 continues to pause its associated mirror. Check `sync-status.textMirror` and the
 remote commit: a successful index alone does not prove GitHub synchronization.
+
+Text mirror destinations use NFC Unicode paths, so macOS decomposed filenames
+match existing GitHub text history. The actual source filenames and originals
+remain unchanged. Normalization aliases (including directory-prefix collisions)
+stop adoption or transfer before projection changes. Existing Git history with
+non-NFC paths requires explicit reconciliation; it is never silently renamed.

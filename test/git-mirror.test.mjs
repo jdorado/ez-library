@@ -5,7 +5,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { Readable } from 'node:stream';
-import { mirrorAdopt, mirrorTransfer, mirrorStatus, mirrorPolicy } from '../src/git-mirror.mjs';
+import { mirrorAdopt, mirrorTransfer, mirrorStatus, mirrorPolicy, textProjection } from '../src/git-mirror.mjs';
 import { initialize, locked, put, organize } from '../src/store.mjs';
 
 async function fixture(t) {
@@ -152,6 +152,81 @@ test('existing mirror adoption refuses absent or excluded historical paths witho
   git(['-C', checkout, 'add', '.']); git(['-C', checkout, 'commit', '-m', 'Historical']); git(['-C', checkout, 'push']);
   const expected = git(['--git-dir', remote, 'rev-parse', 'main']).trim();
   await assert.rejects(mirrorAdopt(root, remote, 'main', '.md', root, '', expected), { code: 'CONFLICT' });
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'main']).trim(), expected);
+  assert.equal((await mirrorStatus(root)).config, null);
+});
+
+
+test('Unicode text projection retains literal source paths and rejects ambiguous aliases', () => {
+  const nfd = 'café/note.md'.normalize('NFD');
+  const config = { extensions: ['.md'], excludeDirectories: ['privé'] };
+  assert.deepEqual(textProjection([{ path: nfd, bytes: 3 }], config), [{ path: nfd, bytes: 3, destination: 'café/note.md' }]);
+  assert.deepEqual(textProjection([{ path: 'privé/secret.md'.normalize('NFD') }], config), []);
+  for (const paths of [
+    ['café.md', 'café.md'.normalize('NFD')],
+    ['café/a.md', 'café/b.md'.normalize('NFD')],
+    ['café.md', 'café.md/a.md'.normalize('NFD')]
+  ]) assert.throws(() => textProjection(paths.map(path => ({ path })), config), { code: 'CONFLICT' });
+});
+
+test('existing NFC mirror history adopts NFD originals without renaming either path', async t => {
+  const { root, remote, base, git, cycle } = await fixture(t);
+  await fs.unlink(path.join(root, 'sync/config.json'));
+  const checkout = path.join(base, 'seed'); git(['clone', remote, checkout]);
+  const name = 'café.md', sourceName = name.normalize('NFD');
+  await fs.writeFile(path.join(checkout, name), 'Historical text');
+  git(['-C', checkout, '-c', 'core.precomposeunicode=true', 'add', '.']);
+  git(['-C', checkout, 'commit', '-m', 'Historical']); git(['-C', checkout, 'push']);
+  const expected = git(['--git-dir', remote, 'rev-parse', 'main']).trim();
+  assert.equal(git(['--git-dir', remote, 'ls-tree', '-rz', '--name-only', 'main']), name + '\0');
+  await fs.writeFile(path.join(root, 'files', sourceName), 'Current text');
+  const originalNames = await fs.readdir(path.join(root, 'files'));
+  await mirrorAdopt(root, remote, 'main', '.md', root, '', expected);
+  const first = await cycle();
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'main^']).trim(), expected);
+  assert.equal(git(['--git-dir', remote, 'ls-tree', '-rz', '--name-only', 'main']), name + '\0');
+  assert.equal(git(['--git-dir', remote, 'show', 'main:' + name]), 'Current text');
+  assert.deepEqual(await fs.readdir(path.join(root, 'files')), originalNames);
+  assert.equal((await cycle()).commit, first.commit);
+  await fs.writeFile(path.join(root, 'files', sourceName), 'Another edit');
+  await cycle();
+  assert.equal(git(['--git-dir', remote, 'show', 'main:' + name]), 'Another edit');
+  assert.equal(git(['--git-dir', remote, 'show', expected + ':' + name]), 'Historical text');
+  assert.deepEqual(await fs.readdir(path.join(root, 'files')), originalNames);
+});
+
+test('normalization collisions stop adoption and transfer before private or remote mirror mutation', async t => {
+  const { root, remote, cycle, git } = await fixture(t);
+  const name = 'café.md', alias = name.normalize('NFD');
+  const originals = path.join(root, 'files');
+  await fs.writeFile(path.join(originals, name), 'First');
+  await fs.writeFile(path.join(originals, alias), 'Second');
+  if ((await fs.readdir(originals)).length !== 2) { t.skip('Filesystem aliases Unicode normalization forms; pure projection collision test still runs'); return; }
+  await assert.rejects(mirrorAdopt(root, remote), { code: 'CONFLICT' });
+  await assert.rejects(fs.stat(path.join(root, 'sync/text-mirror')), { code: 'ENOENT' });
+  await fs.unlink(path.join(originals, alias));
+  await mirrorAdopt(root, remote); const first = await cycle();
+  const index = await fs.readFile(path.join(root, 'sync/text-mirror/git/index'));
+  await fs.writeFile(path.join(originals, alias), 'Conflicting alias');
+  await assert.rejects(cycle(), { code: 'CONFLICT' });
+  assert.deepEqual(await fs.readFile(path.join(root, 'sync/text-mirror/git/index')), index);
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'main']).trim(), first.commit);
+  assert.equal(await fs.readFile(path.join(root, 'sync/text-mirror/files', name), 'utf8'), 'First');
+});
+
+test('non-NFC historical Git paths require reconciliation instead of automatic renaming', async t => {
+  const { root, remote, base, git } = await fixture(t);
+  const checkout = path.join(base, 'seed'); git(['clone', remote, checkout]);
+  const name = 'café.md'.normalize('NFD');
+  await fs.writeFile(path.join(checkout, name), 'Historical text');
+  const oid = git(['-C', checkout, 'hash-object', '-w', name]).trim();
+  git(['-C', checkout, '-c', 'core.precomposeunicode=false', 'update-index', '--add', '--cacheinfo', '100644', oid, name]);
+  git(['-C', checkout, 'commit', '-m', 'Historical']); git(['-C', checkout, 'push']);
+  const expected = git(['--git-dir', remote, 'rev-parse', 'main']).trim();
+  await fs.writeFile(path.join(root, 'files', name), 'Current original');
+  await assert.rejects(mirrorAdopt(root, remote, 'main', '.md', root, '', expected), error => {
+    assert.equal(error.code, 'CONFLICT'); assert.match(error.message, /non-NFC/); return true;
+  });
   assert.equal(git(['--git-dir', remote, 'rev-parse', 'main']).trim(), expected);
   assert.equal((await mirrorStatus(root)).config, null);
 });
