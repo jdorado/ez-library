@@ -35,7 +35,38 @@ try {
   assert.equal(edit("process.stdout.write(await fs.readFile('/external/vault/_attachments/image.png','utf8'));"), 'synthetic bytes');
   docker(['restart', id]);
   assert.equal(parsed(['git-mirror-status', '--library', 'notes']).config.lastCommit, git(['rev-parse', 'main']).trim());
-  console.log(JSON.stringify({ ok: true, checks: ['pc-edit-to-git', 'agent-organize-to-folder', 'keyword-retrieval', 'media-exclusion', 'history-readback', 'restart-persistence'] }));
+  // A second library resumes history directly from a local folder, without
+  // rclone. The resident worker, not a manual sync-run, publishes its edit.
+  parsed(['source-add', '--name', 'local', '--description', 'Local projection']);
+  const historical = git(['rev-parse', 'main']).trim();
+  git(['update-ref', 'refs/heads/local-history', historical]);
+  edit("await fs.mkdir('/state/libraries/local/files/organized'); await fs.copyFile('/state/libraries/notes/files/organized/note.md', '/state/libraries/local/files/organized/note.md');");
+  parsed(['git-mirror-adopt', '--library', 'local', '--repository', '/external/history.git', '--branch', 'local-history', '--expected-remote', historical]);
+  edit("await fs.writeFile('/state/libraries/local/files/organized/note.md', '# Standalone\\nResident worker change.');");
+  parsed(['source-add', '--name', 'checkout', '--description', 'Existing host checkout']);
+  docker(['exec', id, 'git', 'clone', '--bare', '/external/history.git', '/external/checkout.git']);
+  docker(['exec', id, 'git', 'clone', '/external/checkout.git', '/state/libraries/checkout/files']);
+  edit("await fs.appendFile('/state/libraries/checkout/files/.git/info/exclude', '\\nnode_modules/\\n.local/\\n'); await fs.mkdir('/state/libraries/checkout/files/node_modules'); await fs.symlink('/absent-dependency', '/state/libraries/checkout/files/node_modules/dependency'); await fs.mkdir('/state/libraries/checkout/files/.local'); await fs.symlink('/absent-vault', '/state/libraries/checkout/files/.local/notes');");
+  parsed(['git-adopt', '--library', 'checkout', '--repository', '/external/checkout.git', '--existing-checkout']);
+  edit("await fs.writeFile('/state/libraries/checkout/files/outgoing.md', '# Checkout\\nResident Git change.');");
+  docker(['exec', '-d', id, 'node', '/app/src/sync-worker.mjs']);
+  const deadline = Date.now() + 60000;
+  let automatic, checkoutStatus;
+  while (Date.now() < deadline) {
+    automatic = parsed(['sync-status', '--library', 'local']);
+    checkoutStatus = parsed(['sync-status', '--library', 'checkout']);
+    if (automatic.status?.textMirror?.remoteVerified && checkoutStatus.status?.git?.remoteVerified && checkoutStatus.status?.indexedAt) break;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  assert.equal(checkoutStatus.status?.git?.remoteVerified, true);
+  assert.ok(checkoutStatus.status?.indexedAt);
+  assert.match(docker(['exec', id, 'git', '--git-dir=/external/checkout.git', 'show', 'main:outgoing.md']), /Resident Git change/);
+  assert.match(call(['search', 'Resident', '--library', 'checkout']), /outgoing.md/);
+  assert.equal(automatic.config, null);
+  assert.equal(automatic.status?.textMirror?.remoteVerified, true);
+  assert.match(git(['show', 'local-history:organized/note.md']), /Resident worker change/);
+  assert.equal(git(['rev-parse', 'local-history^']).trim(), historical);
+  console.log(JSON.stringify({ ok: true, checks: ['pc-edit-to-git', 'agent-organize-to-folder', 'keyword-retrieval', 'media-exclusion', 'history-readback', 'restart-persistence', 'standalone-resident-mirror', 'adopt-existing-history', 'existing-checkout-resident-sync-and-index'] }));
 } finally {
   docker(['rm', '-f', id]);
   docker(['volume', 'rm', id, id + '-external']);

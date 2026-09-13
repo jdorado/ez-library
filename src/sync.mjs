@@ -145,12 +145,14 @@ export async function syncRun(root, stateRoot = root) {
   return locked(root, async root => {
     await prepare(root);
     const config = await readJSON(location(root));
-    if (!config || config.mode === 'paused') return { state: config ? 'paused' : 'unconfigured' };
+    const mirror = (await mirrorStatus(root)).config;
+    if (config?.mode === 'paused') return { state: 'paused' };
+    if (!config && mirror?.mode !== 'one-way') return { state: mirror ? 'paused' : 'unconfigured' };
     let status = { state: 'syncing', startedAt: new Date().toISOString() };
     await atomic(path.join(root, 'sync/status.json'), jsonBytes(status));
     try {
-      if (config.backend === 'git') status.git = await gitTransfer(root, config);
-      else {
+      if (config?.backend === 'git') status.git = await gitTransfer(root, config);
+      else if (config) {
         if (await remoteIdentity(root, config.remote, stateRoot) !== config.identity) fail('CONFLICT', 'Mapped folder disappeared or changed identity; no automatic recreation');
         succeeded(await rclone(root, bisyncArgs(root, config)), 'Native bisync');
       }
@@ -166,7 +168,7 @@ export async function syncRun(root, stateRoot = root) {
       throw error;
     }
     await atomic(path.join(root, 'sync/status.json'), jsonBytes(status));
-    if (status.textMirror?.state === 'pending') fail('UNAVAILABLE', 'Folder synced; GitHub text mirror pending: ' + status.textMirror.error.message);
+    if (status.textMirror?.state === 'pending') fail('UNAVAILABLE', 'GitHub text mirror pending: ' + status.textMirror.error.message);
     return status;
   });
 }

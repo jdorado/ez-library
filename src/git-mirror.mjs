@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import { atomic, fail, hash, jsonBytes, locked, safePath } from './store.mjs';
 import { inventory } from './indexer.mjs';
-import { git, repositoryURL } from './git-sync.mjs';
+import { git, repositoryURL, tree } from './git-sync.mjs';
 import { native, succeeded } from './native.mjs';
 
 const file = root => path.join(root, 'sync/text-mirror.json');
@@ -32,7 +32,7 @@ export async function mirrorStatus(root) {
     (config.excludeDirectories !== undefined && (!Array.isArray(config.excludeDirectories) || config.excludeDirectories.some(x => !validExcludedDirectory(x)) || new Set(config.excludeDirectories).size !== config.excludeDirectories.length)))) fail('INVALID', 'Invalid text mirror configuration');
   return { config, revision: config ? hash(jsonBytes(config)) : null };
 }
-export async function mirrorAdopt(root, repository, branch = 'main', extensions = '.md,.markdown,.txt,.csv,.tsv', stateRoot = root, excluded = '') {
+export async function mirrorAdopt(root, repository, branch = 'main', extensions = '.md,.markdown,.txt,.csv,.tsv', stateRoot = root, excluded = '', expectedRemote) {
   repositoryURL(repository);
   const exclusions = excludedDirectories(excluded);
   return locked(root, async root => {
@@ -40,8 +40,8 @@ export async function mirrorAdopt(root, repository, branch = 'main', extensions 
       const real = await fs.realpath(repository), base = await fs.realpath(stateRoot);
       if (real !== repository || real === base || real.startsWith(base + '/') || base.startsWith(real + '/')) fail('UNSAFE_PATH', 'Mirror repository must be outside Library state');
     }
-    const binding = JSON.parse(await fs.readFile(await safePath(root, 'sync/config.json'), 'utf8'));
-    if (binding.backend === 'git') fail('CONFLICT', 'Text mirror requires a folder binding, not another Git writer');
+    const binding = await fs.readFile(await safePath(root, 'sync/config.json'), 'utf8').then(JSON.parse).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+    if (binding?.backend === 'git') fail('CONFLICT', 'Text mirror requires a folder binding, not another Git writer');
     if ((await mirrorStatus(root)).config) fail('CONFLICT', 'Text mirror already configured; inspect git-mirror-status');
     const config = { schemaVersion: 1, repository, branch, extensions: extensions.split(','), mode: 'paused', ...(exclusions.length ? { excludeDirectories: exclusions } : {}) };
     if (!config.extensions.length || config.extensions.some(x => !/^\.[a-z0-9]{1,12}$/.test(x))) fail('INVALID', 'Supply comma-separated lowercase extensions');
@@ -61,9 +61,28 @@ export async function mirrorAdopt(root, repository, branch = 'main', extensions 
     const origin = await mirrorGit(root, config, ['remote', 'get-url', 'origin']);
     if (origin.code === 0 && origin.stdout.trim() !== repositoryURL(repository)) fail('CONFLICT', 'Partial mirror setup belongs to another repository');
     if (origin.code !== 0) succeeded(await mirrorGit(root, config, ['remote', 'add', 'origin', repositoryURL(repository)]), 'Set mirror remote');
-    // Only an empty remote branch can be adopted: never overwrite existing history.
+    // Existing history requires an exact reviewed remote revision and a safe
+    // projection. Adoption never writes source files or pushes a remote change.
     const existing = succeeded(await mirrorGit(root, config, ['ls-remote', 'origin', 'refs/heads/' + branch]), 'Check mirror destination');
-    if (existing.trim()) fail('CONFLICT', 'Use a new empty mirror branch; existing history is not adopted or overwritten');
+    const remoteHead = existing.trim().split(/\s+/)[0];
+    if (expectedRemote !== undefined && !/^[a-f0-9]{40}$/.test(expectedRemote)) fail('INVALID', 'Use the full expected remote commit SHA');
+    if (remoteHead && !expectedRemote) fail('CONFLICT', 'Existing mirror history requires --expected-remote with the reviewed commit SHA');
+    if (expectedRemote && remoteHead !== expectedRemote) fail('CONFLICT', 'Mirror remote no longer matches the expected commit');
+    if (remoteHead) {
+      succeeded(await mirrorGit(root, config, ['fetch', '--no-tags', 'origin', 'refs/heads/' + branch]), 'Fetch existing mirror');
+      if (succeeded(await mirrorGit(root, config, ['rev-parse', 'FETCH_HEAD']), 'Read fetched mirror').trim() !== expectedRemote) fail('CONFLICT', 'Mirror changed during adoption');
+      const entries = await tree(root, { ...config, textMirror: true }, 'FETCH_HEAD');
+      const originals = new Set((await inventory(path.join(root, 'files'))).map(item => item.path));
+      for (const entry of entries) {
+        if (!config.extensions.includes(path.extname(entry.path).toLowerCase()) || entry.path.split('/').some(part => part.startsWith('.')) ||
+          exclusions.some(directory => entry.path === directory || entry.path.startsWith(directory + '/')) || !originals.has(entry.path)) {
+          fail('CONFLICT', 'Existing mirror path is absent or outside the selected text projection: ' + entry.path);
+        }
+      }
+      succeeded(await mirrorGit(root, config, ['reset', '--mixed', expectedRemote]), 'Retain existing mirror history');
+      succeeded(await mirrorGit(root, config, ['checkout-index', '--all']), 'Initialize private text projection');
+      config.lastCommit = expectedRemote;
+    }
     config.mode = 'one-way';
     await atomic(file(root), jsonBytes(config));
     return mirrorStatus(root);

@@ -53,6 +53,23 @@ Native `ez library git ...` runs against that bound repository with hooks
 disabled and a filtered environment. This is a low-level recovery interface;
 imported documents are never instructions to run Git commands.
 
+## Reuse a mounted checkout
+
+For an existing repository mounted at `files`, use `git-adopt --repository
+OWNER/REPO --branch main --existing-checkout`. The mount must explicitly allow
+writes. Adoption retains its `.git`, HEAD, native index and history; it never
+creates a second Git writer with separate metadata. The selected branch and
+origin must match. An exact GitHub HTTPS origin is accepted; transfers use the
+same isolated SSH deploy key without changing that origin.
+
+Unstaged eligible changes are committed by subsequent cycles. Ignore local-only
+artifacts in `.git/info/exclude` before enabling. Staged changes, branch/origin
+drift, linked worktrees and active Git operations stop synchronization. Finish
+and commit conflict resolutions through the native checkout before resuming.
+Keep one writer: pause synchronization before another task stages, commits or
+switches branches. The Library lock coordinates Library operations, not external
+Git processes. There is no force-push or automatic index cleanup.
+
 ## Conflicts and recovery
 
 Git merges independent changes normally. Conflicting changes stop transfers and

@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import { atomic, fail, hash, jsonBytes, locked, safePath, settings } from './store.mjs';
 import { native, succeeded } from './native.mjs';
-import { inventory } from './indexer.mjs';
+import { inventory, gitInventory } from './indexer.mjs';
 
 const quote = s => "'" + s.replaceAll("'", "'\\''") + "'";
 const privateDir = (root, repo) => path.join(root, 'sync/keys', hash(repo));
@@ -35,9 +35,9 @@ export async function gitKey(root, repository) {
 export function git(root, config, args, options = {}) {
   const dir = privateDir(root, config.repository);
   const workTree = path.join(root, config.textMirror ? 'sync/text-mirror/files' : 'files');
-  const gitDir = path.join(root, config.textMirror ? 'sync/text-mirror/git' : 'sync/git');
+  const gitDir = path.join(root, config.textMirror ? 'sync/text-mirror/git' : config.existingCheckout ? 'files/.git' : 'sync/git');
   return native(root, '/usr/bin/git', ['-C', workTree, '--git-dir=' + gitDir, '--work-tree=' + workTree,
-    '-c', 'core.hooksPath=/dev/null', '-c', 'core.autocrlf=false', '-c', 'core.filemode=false',
+    '-c', 'safe.directory=' + workTree, '-c', 'core.hooksPath=/dev/null', '-c', 'core.autocrlf=false', '-c', 'core.filemode=false',
     '-c', 'user.name=Ez Library', '-c', 'user.email=library@localhost', ...args], {
     ...options, env: { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0',
       GIT_ALLOW_PROTOCOL: path.isAbsolute(config.repository) ? 'file' : 'ssh',
@@ -45,7 +45,7 @@ export function git(root, config, args, options = {}) {
         '-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=' + path.join(dir, 'known_hosts'), '-i', path.join(dir, 'key')].map(quote).join(' ') } });
 }
 
-async function tree(root, config, ref) {
+export async function tree(root, config, ref) {
   const output = succeeded(await git(root, config, ['ls-tree', '-rz', '--full-tree', ref]), 'Read repository tree');
   const entries = [];
   for (const record of output.split('\0').filter(Boolean)) {
@@ -66,7 +66,26 @@ async function checkPolicy(root, repository, branch) {
   if (storage.mode === 'github' && (storage.github.repository !== repository || storage.github.branch !== branch)) fail('CONFLICT', 'Git binding must match configured repository and branch');
 }
 
-export async function gitAdopt(root, repository, branch = 'main', stateRoot = root) {
+async function existingCheckout(root, config) {
+  const metadata = await fs.lstat(path.join(root, 'files/.git'));
+  if (!metadata.isDirectory() || metadata.isSymbolicLink()) fail('UNSAFE_PATH', 'Existing checkout requires an ordinary .git directory');
+  const branch = succeeded(await git(root, config, ['symbolic-ref', '--quiet', '--short', 'HEAD']), 'Read checkout branch').trim();
+  if (branch !== config.branch) fail('CONFLICT', 'Checkout branch no longer matches the Library binding');
+  const origin = succeeded(await git(root, config, ['remote', 'get-url', 'origin']), 'Read checkout origin').trim();
+  const allowed = [repositoryURL(config.repository)];
+  if (!path.isAbsolute(config.repository)) allowed.push(`https://github.com/${config.repository}.git`, `https://github.com/${config.repository}`);
+  if (!allowed.includes(origin) || (config.checkoutOrigin && origin !== config.checkoutOrigin)) fail('CONFLICT', 'Checkout origin does not match the selected repository');
+  for (const name of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply', 'index.lock']) {
+    try { await fs.lstat(path.join(root, 'files/.git', name)); fail('CONFLICT', 'Checkout has an active Git operation; finish it before syncing'); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+  const staged = await git(root, config, ['diff', '--cached', '--quiet']);
+  if (staged.code === 1) fail('CONFLICT', 'Checkout has staged changes; preserve or commit them before syncing');
+  succeeded(staged, 'Inspect existing index');
+  return origin;
+}
+
+export async function gitAdopt(root, repository, branch = 'main', stateRoot = root, reuseCheckout = false) {
   const remote = repositoryURL(repository);
   return locked(root, async root => {
     await checkPolicy(root, repository, branch);
@@ -77,10 +96,24 @@ export async function gitAdopt(root, repository, branch = 'main', stateRoot = ro
     await fs.mkdir(path.join(root, 'sync'), { recursive: true, mode: 0o700 });
     const binding = await safePath(root, 'sync/config.json');
     try { await fs.access(binding); fail('CONFLICT', 'A sync binding already exists'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    const config = { schemaVersion: 1, backend: 'git', repository, branch, mode: 'paused', intervalSeconds: 60, ...(reuseCheckout ? { existingCheckout: true } : {}) };
+    if (reuseCheckout) {
+      config.checkoutOrigin = await existingCheckout(root, config);
+      await tree(root, config, 'HEAD');
+      succeeded(await git(root, config, ['fetch', '--no-tags', remote, 'refs/heads/' + branch]), 'Verify selected remote');
+      await tree(root, config, 'FETCH_HEAD');
+      // No checkout, reset, commit or push during adoption. Native history and
+      // eligible unstaged edits remain owned by the existing checkout.
+      succeeded(await git(root, config, ['merge-base', 'HEAD', 'FETCH_HEAD']), 'Verify shared history');
+      config.mode = 'two-way';
+      await atomic(binding, jsonBytes(config));
+      return { config, imported: 0, indexing: 'pending' };
+    }
+    try { await fs.lstat(path.join(root, 'files/.git')); fail('CONFLICT', 'Use --existing-checkout to reuse existing Git metadata'); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
     // Local state can be preserved in-place only when the remote has the same
     // bytes at every existing path. Extra local files stay as pending additions.
     const local = await inventory(path.join(root, 'files'), '', { includeHidden: true });
-    const config = { schemaVersion: 1, backend: 'git', repository, branch, mode: 'paused', intervalSeconds: 60 };
     succeeded(await git(root, config, ['check-ref-format', '--branch', branch]), 'Validate branch');
     const repoDir = await safePath(root, 'sync/git/probe', true);
     await fs.mkdir(path.dirname(repoDir), { recursive: true, mode: 0o700 });
@@ -109,11 +142,12 @@ export async function gitAdopt(root, repository, branch = 'main', stateRoot = ro
 
 export async function gitTransfer(root, config) {
   await checkPolicy(root, config.repository, config.branch);
+  if (config.existingCheckout) await existingCheckout(root, config);
   const actualRemote = succeeded(await git(root, config, ['remote', 'get-url', 'origin']), 'Check bound remote').trim();
-  if (actualRemote !== repositoryURL(config.repository)) fail('CONFLICT', 'Git remote no longer matches the Library binding');
+  if (actualRemote !== (config.checkoutOrigin || repositoryURL(config.repository))) fail('CONFLICT', 'Git remote no longer matches the Library binding');
   const conflict = succeeded(await git(root, config, ['ls-files', '--unmerged']), 'Inspect merge state');
   if (conflict) fail('CONFLICT', 'Git merge unresolved; use native git status/show/add to resolve both retained versions before syncing');
-  const files = await inventory(path.join(root, 'files'), '', { includeHidden: true });
+  const files = config.existingCheckout ? await gitInventory(root) : await inventory(path.join(root, 'files'), '', { includeHidden: true });
   const ignored = new Set(succeeded(await git(root, config, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z']), 'Inspect ignored files').split('\0').filter(Boolean));
   if (files.some(f => !ignored.has(f.path) && f.bytes >= 100 * 1024 * 1024)) fail('TOO_LARGE', 'GitHub ordinary files must be below 100 MiB; select another storage mode for larger media');
   succeeded(await git(root, config, ['add', '--all', '--', '.']), 'Stage Library changes');
@@ -123,7 +157,8 @@ export async function gitTransfer(root, config) {
   if (![0, 1].includes(diff.code)) succeeded(diff, 'Inspect staged changes');
   const merging = await git(root, config, ['rev-parse', '--verify', 'MERGE_HEAD']);
   if (diff.code === 1 || merging.code === 0) succeeded(await git(root, config, ['commit', '--no-gpg-sign', '-m', 'Sync Library changes']), 'Commit Library changes');
-  succeeded(await git(root, config, ['fetch', '--no-tags', 'origin', 'refs/heads/' + config.branch]), 'Fetch remote changes');
+  const transport = config.existingCheckout ? repositoryURL(config.repository) : 'origin';
+  succeeded(await git(root, config, ['fetch', '--no-tags', transport, 'refs/heads/' + config.branch]), 'Fetch remote changes');
   await tree(root, config, 'FETCH_HEAD');
   const head = succeeded(await git(root, config, ['rev-parse', 'HEAD']), 'Read local commit').trim();
   const merge = await git(root, config, ['merge', '--no-overwrite-ignore', '--no-edit', '--no-gpg-sign', 'FETCH_HEAD']);
@@ -132,8 +167,8 @@ export async function gitTransfer(root, config) {
     succeeded(merge, 'Merge remote changes');
   }
   const commit = succeeded(await git(root, config, ['rev-parse', 'HEAD']), 'Read synchronized commit').trim();
-  succeeded(await git(root, config, ['push', 'origin', 'HEAD:refs/heads/' + config.branch]), 'Push Library changes');
-  const remote = succeeded(await git(root, config, ['ls-remote', '--exit-code', 'origin', 'refs/heads/' + config.branch]), 'Verify remote commit').trim().split(/\s+/)[0];
+  succeeded(await git(root, config, ['push', transport, 'HEAD:refs/heads/' + config.branch]), 'Push Library changes');
+  const remote = succeeded(await git(root, config, ['ls-remote', '--exit-code', transport, 'refs/heads/' + config.branch]), 'Verify remote commit').trim().split(/\s+/)[0];
   if (remote !== commit) fail('UNCERTAIN', 'Remote advanced during verification; fetch/reconcile on the next cycle');
   return { commit, previousCommit: head, remoteVerified: true };
 }
