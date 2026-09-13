@@ -1,4 +1,5 @@
 import { setTimeout } from 'node:timers/promises';
+import { mirrorStatus } from './git-mirror.mjs';
 import { syncRun, syncStatus } from './sync.mjs';
 import { locked } from './store.mjs';
 import { refreshIndex } from './indexer.mjs';
@@ -22,14 +23,15 @@ while (!stopping) {
       try {
         const selected = await libraryRoot(root, name);
         const { config } = await syncStatus(selected);
-        if (config?.mode !== 'two-way') {
+        const mirror = (await mirrorStatus(selected)).config;
+        if (config?.mode !== 'two-way' && (config || mirror?.mode !== 'one-way')) {
           due.delete(name);
           if ((await embeddingStatus()).state === 'ready') await locked(selected, refreshIndex);
           continue;
         }
         if ((due.get(name) || 0) <= Date.now()) {
           try { await syncRun(selected, root); }
-          finally { due.set(name, Date.now() + config.intervalSeconds * 1000); }
+          finally { due.set(name, Date.now() + (config?.intervalSeconds || 60) * 1000); }
         }
         interval = Math.min(interval, Math.max(1, ((due.get(name) || 0) - Date.now()) / 1000));
       } catch (error) {

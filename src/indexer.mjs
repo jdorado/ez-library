@@ -15,6 +15,29 @@ export async function inventory(directory, relative = '', { includeHidden = fals
   return result;
 }
 
+// Native Git selects tracked and eligible untracked paths. Never traverse
+// ignored caches, dependency trees or symlinks while reading a host checkout.
+export async function gitInventory(root) {
+  const workTree = path.join(root, 'files');
+  const result = await native(root, '/usr/bin/git', ['-C', workTree, '--git-dir=' + path.join(workTree, '.git'), '--work-tree=' + workTree,
+    '-c', 'safe.directory=' + workTree, '-c', 'core.hooksPath=/dev/null', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+  { env: { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } });
+  const files = [];
+  for (const name of new Set(succeeded(result, 'List eligible checkout files').split('\0').filter(Boolean))) {
+    const parts = name.split('/');
+    if (/[\x00-\x1f\x7f\\]/.test(name) || parts.some(part => !part || part === '.' || part === '..' || part.toLowerCase() === '.git')) throw Error('Unsafe Git path');
+    let file = workTree, absent = false;
+    for (let i = 0; i < parts.length; i++) {
+      file = path.join(file, parts[i]);
+      const stat = await fs.lstat(file).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+      if (!stat) { absent = true; break; }
+      if (stat.isSymbolicLink() || !(i === parts.length - 1 ? stat.isFile() : stat.isDirectory())) throw Error('Unsupported symlink or special file in Library');
+    }
+    if (!absent) files.push({ path: name, ...(await digest(file)) });
+  }
+  return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
 // Derived text is a rebuildable cache, outside the mirrored originals. Never
 // overwrite an owner's note to regenerate PDF extraction.
 export async function refreshIndex(root) {
@@ -23,7 +46,8 @@ export async function refreshIndex(root) {
   const cache = path.join(root, 'index-text');
   await fs.mkdir(cache, { recursive: true, mode: 0o700 });
   if ((await fs.lstat(cache)).isSymbolicLink()) throw Error('Extraction cache cannot be a symlink');
-  const files = await inventory(path.join(root, 'files'));
+  const binding = await fs.readFile(path.join(root, 'sync/config.json'), 'utf8').then(JSON.parse).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+  const files = binding?.backend === 'git' && binding.existingCheckout ? (await gitInventory(root)).filter(file => !file.path.split('/').some(part => part.startsWith('.'))) : await inventory(path.join(root, 'files'));
   const fingerprint = hash(jsonBytes(files));
   await fs.mkdir(path.join(root, 'sync'), { recursive: true, mode: 0o700 });
   const ledgerFile = path.join(root, 'sync/index.json');

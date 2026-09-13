@@ -119,3 +119,39 @@ test('text mirror handles directory and file replacements and retries with empty
   assert.equal((await cycle()).remoteVerified, true);
   assert.equal(git(['--git-dir', remote, 'show', 'main:topic.md/b.txt']), 'restored folder');
 });
+
+test('standalone local mirror adopts reviewed history and preserves excluded originals', async t => {
+  const { root, remote, base, git, cycle } = await fixture(t);
+  await fs.unlink(path.join(root, 'sync/config.json'));
+  const checkout = path.join(base, 'seed'); git(['clone', remote, checkout]);
+  await fs.writeFile(path.join(checkout, 'note.md'), 'Historical text');
+  git(['-C', checkout, 'add', '.']); git(['-C', checkout, 'commit', '-m', 'Historical']); git(['-C', checkout, 'push']);
+  const expected = git(['--git-dir', remote, 'rev-parse', 'main']).trim();
+  await put(root, 'note.md', Readable.from(['Current original']), { expected: 'new', key: 'note' });
+  await put(root, 'private/passwords/secret.md', Readable.from(['Excluded']), { expected: 'new', key: 'secret' });
+  await put(root, 'private/passwords-other/secret.md', Readable.from(['Also excluded']), { expected: 'new', key: 'other' });
+  const excluded = 'private/passwords,private/passwords-other';
+  await assert.rejects(mirrorAdopt(root, remote, 'main', '.md', root, excluded), { code: 'CONFLICT' });
+  await assert.rejects(mirrorAdopt(root, remote, 'main', '.md', root, excluded, '0'.repeat(40)), { code: 'CONFLICT' });
+  await mirrorAdopt(root, remote, 'main', '.md', root, excluded, expected);
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'main']).trim(), expected);
+  const result = await cycle();
+  assert.equal(result.remoteVerified, true);
+  assert.equal(git(['--git-dir', remote, 'show', expected + ':note.md']), 'Historical text');
+  assert.equal(git(['--git-dir', remote, 'show', 'main:note.md']), 'Current original');
+  assert.equal(git(['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'main']).trim(), 'note.md');
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'main^']).trim(), expected);
+  assert.equal((await cycle()).commit, result.commit);
+});
+
+test('existing mirror adoption refuses absent or excluded historical paths without rewriting history', async t => {
+  const { root, remote, base, git } = await fixture(t);
+  await fs.unlink(path.join(root, 'sync/config.json'));
+  const checkout = path.join(base, 'seed'); git(['clone', remote, checkout]);
+  await fs.writeFile(path.join(checkout, 'missing.md'), 'Preserve me');
+  git(['-C', checkout, 'add', '.']); git(['-C', checkout, 'commit', '-m', 'Historical']); git(['-C', checkout, 'push']);
+  const expected = git(['--git-dir', remote, 'rev-parse', 'main']).trim();
+  await assert.rejects(mirrorAdopt(root, remote, 'main', '.md', root, '', expected), { code: 'CONFLICT' });
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'main']).trim(), expected);
+  assert.equal((await mirrorStatus(root)).config, null);
+});
