@@ -185,12 +185,15 @@ test('explicit existing checkout adoption retains native HEAD/index and synchron
   await fs.writeFile(path.join(root, 'files/outgoing.md'), 'Outgoing change');
   const first = await cycle(root, config);
   assert.equal(outside(['-C', path.join(root, 'files'), 'rev-parse', 'HEAD']).trim(), first.commit);
+  assert.equal(outside(['-C', path.join(root, 'files'), 'rev-parse', 'origin/main']).trim(), first.commit);
   assert.equal(outside(['--git-dir', remote, 'show', 'main:outgoing.md']), 'Outgoing change');
   outside(['-C', external, 'pull', '--ff-only']);
   await fs.writeFile(path.join(external, 'incoming.md'), 'Incoming change'); publish();
   const second = await cycle(root, config);
   assert.equal(await fs.readFile(path.join(root, 'files/incoming.md'), 'utf8'), 'Incoming change');
   assert.equal((await cycle(root, config)).commit, second.commit);
+  assert.equal(outside(['-C', path.join(root, 'files'), 'rev-parse', 'origin/main']).trim(), second.commit);
+  assert.equal(outside(['-C', path.join(root, 'files'), 'rev-list', '--left-right', '--count', 'HEAD...origin/main']).trim(), '0\t0');
   assert.doesNotMatch(outside(['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'main']), /local-only/);
 });
 

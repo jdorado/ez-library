@@ -158,6 +158,9 @@ export async function gitTransfer(root, config) {
   const merging = await git(root, config, ['rev-parse', '--verify', 'MERGE_HEAD']);
   if (diff.code === 1 || merging.code === 0) succeeded(await git(root, config, ['commit', '--no-gpg-sign', '-m', 'Sync Library changes']), 'Commit Library changes');
   const transport = config.existingCheckout ? repositoryURL(config.repository) : 'origin';
+  const trackingRef = 'refs/remotes/origin/' + config.branch;
+  const previousTracking = config.existingCheckout ? await git(root, config, ['rev-parse', '--verify', '--quiet', trackingRef]) : null;
+  if (previousTracking && ![0, 1].includes(previousTracking.code)) succeeded(previousTracking, 'Read origin revision');
   succeeded(await git(root, config, ['fetch', '--no-tags', transport, 'refs/heads/' + config.branch]), 'Fetch remote changes');
   await tree(root, config, 'FETCH_HEAD');
   const head = succeeded(await git(root, config, ['rev-parse', 'HEAD']), 'Read local commit').trim();
@@ -170,5 +173,6 @@ export async function gitTransfer(root, config) {
   succeeded(await git(root, config, ['push', transport, 'HEAD:refs/heads/' + config.branch]), 'Push Library changes');
   const remote = succeeded(await git(root, config, ['ls-remote', '--exit-code', transport, 'refs/heads/' + config.branch]), 'Verify remote commit').trim().split(/\s+/)[0];
   if (remote !== commit) fail('UNCERTAIN', 'Remote advanced during verification; fetch/reconcile on the next cycle');
+  if (config.existingCheckout) succeeded(await git(root, config, ['update-ref', trackingRef, commit, previousTracking.code === 0 ? previousTracking.stdout.trim() : '0'.repeat(40)]), 'Record verified origin revision');
   return { commit, previousCommit: head, remoteVerified: true };
 }
