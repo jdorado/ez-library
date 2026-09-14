@@ -68,12 +68,12 @@ export async function searchLibraries(base, { name, all, query, limit = 5 }, sea
   for (const entry of entries) {
     try {
       const root = await libraryRoot(base, entry.name);
-      const results = await locked(root, async () => {
-        const output = succeeded(await search(root, ['search', query, '--json', '-n', String(limit)]), 'QMD search');
-        const matches = JSON.parse(output);
-        if (!Array.isArray(matches)) fail('UNAVAILABLE', 'QMD search did not return an array');
-        return matches.map(match => ({ ...match, library: entry.name }));
-      });
+      // QMD owns SQLite concurrency. Reading its indexed snapshot must not take
+      // the Library writer lock held throughout folder transfer and indexing.
+      const output = succeeded(await search(root, ['search', query, '--json', '-n', String(limit)]), 'QMD search');
+      const matches = JSON.parse(output);
+      if (!Array.isArray(matches)) fail('UNAVAILABLE', 'QMD search did not return an array');
+      const results = matches.map(match => ({ ...match, library: entry.name }));
       libraries.push({ library: entry.name, results });
     } catch (error) { libraries.push({ library: entry.name, error: { code: error.code || 'UNAVAILABLE', message: error.message } }); }
   }

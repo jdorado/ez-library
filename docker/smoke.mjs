@@ -51,6 +51,17 @@ try {
   assert.match(call(['qmd', 'search', 'passport', '-c', 'library', '--json']), /travel\.md/);
   assert.match(call(['qmd', 'search', 'quasar', '-c', 'library', '--json']), /reading\.txt/);
   assert.match(call(['qmd', 'get', 'qmd://library/notes/travel.md']), /Passport, charger and toothbrush/);
+  // A folder sync holds this lock across transfer and index refresh. Keyword
+  // retrieval still reads QMD's committed snapshot and leaves the lock intact.
+  docker(['run', '--rm', '--network', 'none', '-v', volume + ':/state', image, 'mkdir', '/state/.writer-lock']);
+  try {
+    const duringWrite = parsed(['search', 'passport']);
+    assert.equal(duringWrite.complete, true);
+    assert.match(duringWrite.libraries[0].results[0].file, /travel\.md/);
+    docker(['run', '--rm', '--network', 'none', '-v', volume + ':/state', image, 'test', '-d', '/state/.writer-lock']);
+  } finally {
+    docker(['run', '--rm', '--network', 'none', '-v', volume + ':/state', image, 'rmdir', '/state/.writer-lock']);
+  }
   if (ipc) {
     call(['qmd', 'embed', '--no-gpu', '--max-docs-per-batch', '8']);
     assert.match(call(['qmd', 'query', 'vec: What should I pack for a trip?', '-c', 'library', '--no-rerank', '--json', '-n', '5']), /travel\.md/);

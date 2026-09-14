@@ -68,6 +68,18 @@ test('search preserves QMD matches and source names, reporting partial errors', 
   await assert.rejects(searchLibraries(base, { query, all: true, name: 'work' }));
 });
 
+test('indexed search remains available during a Library write without releasing its lock', async t => {
+  const base = await setup(t);
+  await addLibrary(base, 'work', 'Work');
+  const { root } = await selectLibrary(base, 'work');
+  await locked(root, async () => {
+    const response = await searchLibraries(base, { name: 'work', query: 'passport' }, async () => ({ code: 0, stdout: '[{"file":"qmd://library/travel.md"}]' }));
+    assert.equal(response.complete, true);
+    assert.equal(response.libraries[0].results[0].library, 'work');
+    await assert.rejects(locked(root, () => {}), { code: 'BUSY' });
+  });
+});
+
 test('two native Git repositories with identical paths transfer independently', async t => {
   const base = await setup(t);
   const git = args => execFileSync('/usr/bin/git', ['-c', 'user.name=QA', '-c', 'user.email=qa@example.invalid', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin', HOME: path.dirname(base), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_ALLOW_PROTOCOL: 'file' } });

@@ -32,9 +32,17 @@ after adding one. The plugin does not edit the mind or notify other agents.
 Do not copy existing files into a new library without that intent, and do not
 bind two writers to the same remote destination.
 
-Use `search 'query' --all` when searching across libraries. Keep each result's
+Use `search 'query' --all` when searching across libraries. Search reads QMD's
+indexed snapshot even while folder sync holds the Library writer lock. Keep each result's
 library name with its path and use that name for readback. Report per-library
 search errors rather than treating incomplete results as a complete search.
+
+Search results are leads, not the answer. Read promising source files with `get`
+and the matching `--library` before drawing conclusions. If a compound keyword
+query misses, try its distinctive place or topic alone. A note containing only
+attachment links does not prove that its scanned content was searched; inspect
+it with available vision/OCR tools or state that limitation. Check the person
+named in a document before attributing its facts to the owner.
 See [named libraries](../../docs/named-libraries.md) for state and native QMD setup.
 
 ## Attachment intake is the default
