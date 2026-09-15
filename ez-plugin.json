@@ -8,6 +8,17 @@
       "executable": "bin/ez-library.mjs",
       "args": []
     },
+    "library-file": {
+      "executable": "bin/ez-library.mjs",
+      "args": [],
+      "channelFile": true,
+      "exposure": {
+        "receivesExternalContent": true,
+        "sendsExternally": false,
+        "changesRecords": false,
+        "requiresReview": false
+      }
+    },
     "library-query": {
       "executable": "bin/ez-library.mjs",
       "args": [],
