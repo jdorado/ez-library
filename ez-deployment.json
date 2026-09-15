@@ -22,6 +22,14 @@
         "node",
         "/app/bin/ez-library.mjs"
       ]
+    },
+    "library-query": {
+      "service": "library",
+      "argv": [
+        "node",
+        "/app/bin/ez-library.mjs",
+        "search"
+      ]
     }
   },
   "sharedServices": {

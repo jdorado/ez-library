@@ -7,6 +7,17 @@
     "library": {
       "executable": "bin/ez-library.mjs",
       "args": []
+    },
+    "library-query": {
+      "executable": "bin/ez-library.mjs",
+      "args": [],
+      "channelQuery": true,
+      "exposure": {
+        "receivesExternalContent": true,
+        "sendsExternally": false,
+        "changesRecords": false,
+        "requiresReview": false
+      }
     }
   },
   "skills": [
