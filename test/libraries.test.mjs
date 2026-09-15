@@ -68,6 +68,22 @@ test('search preserves QMD matches and source names, reporting partial errors', 
   await assert.rejects(searchLibraries(base, { query, all: true, name: 'work' }));
 });
 
+test('read-only search does not acquire or release the Library writer lock', async t => {
+  const base = await setup(t);
+  await addLibrary(base, 'work', 'Work');
+  const { root } = await selectLibrary(base, 'work');
+  await locked(root, async () => {
+    const searches = await Promise.all(['first', 'second'].map(query =>
+      searchLibraries(base, { name: 'work', query }, async () => ({ code: 0, stdout: `[{"file":"qmd://library/${query}.md"}]` }))));
+    assert.equal(searches.every(result => result.complete), true);
+    assert.deepEqual(searches.map(result => result.libraries[0].results[0].file), [
+      'qmd://library/first.md',
+      'qmd://library/second.md'
+    ]);
+    await assert.rejects(locked(root, () => {}), { code: 'BUSY' });
+  });
+});
+
 test('two native Git repositories with identical paths transfer independently', async t => {
   const base = await setup(t);
   const git = args => execFileSync('/usr/bin/git', ['-c', 'user.name=QA', '-c', 'user.email=qa@example.invalid', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin', HOME: path.dirname(base), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_ALLOW_PROTOCOL: 'file' } });
