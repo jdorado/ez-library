@@ -30,6 +30,7 @@ Local library files, QMD retrieval, and persistence settings.
   configure --expected HASH|new --key KEY < settings.json
   put --path RELATIVE --expected HASH|new --key KEY < file
   get --path RELATIVE [--raw]      Metadata/hash, or exact binary stdout
+  file --library NAME -- RELATIVE  Original file bytes for channel delivery (20 MiB)
   pdf-text --path RELATIVE         Poppler text to stdout, page breaks retained
   list [--prefix TEXT] [--limit 100]
   operation --key KEY             Recover write outcome from current bytes
@@ -132,6 +133,26 @@ export async function main(argv = process.argv.slice(2)) {
       return;
     }
     const { root } = await selectLibrary(base, name);
+    if (command === 'file') {
+      if (!name || rest.length !== 2 || rest[0] !== '--') fail('INVALID', 'Supply file --library NAME -- RELATIVE_PATH');
+      await rootDir(root);
+      const file = await safePath(root, 'files/' + rest[1]);
+      const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      try {
+        const stat = await handle.stat();
+        if (!stat.isFile()) fail('UNSAFE_PATH', 'Expected a regular file');
+        const maxBytes = 20 * 1024 * 1024;
+        if (stat.size > maxBytes) fail('TOO_LARGE', 'Channel files are limited to 20 MiB');
+        const chunks = []; let bytes = 0;
+        for await (const chunk of handle.createReadStream({ autoClose: false, end: maxBytes })) {
+          bytes += chunk.length;
+          if (bytes > maxBytes) fail('TOO_LARGE', 'Channel files are limited to 20 MiB');
+          chunks.push(chunk);
+        }
+        process.stdout.write(Buffer.concat(chunks));
+      } finally { await handle.close(); }
+      return;
+    }
     if (command === 'qmd') { process.exitCode = await runQmd(root, rest); return; }
     if (command === 'git') {
       process.exitCode = await locked(root, async root => {
