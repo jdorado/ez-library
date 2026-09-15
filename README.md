@@ -33,7 +33,7 @@ ez library --help
 ez library doctor
 ```
 
-Installation snapshots/builds the package without starting it. `start`, `stop`, `status` and `uninstall` are provided by `ez plugins`. Do not start a parallel standalone deployment for an installed agent. The manifest identifies plugin `library`, command `library`, and skill `skills/library/SKILL.md`.
+Installation snapshots/builds the package without starting it. `start`, `stop`, `status` and `uninstall` are provided by `ez plugins`. Do not start a parallel standalone deployment for an installed agent. The manifest identifies plugin `library`, owner command `library`, restricted read-only alias `library-query`, and skill `skills/library/SKILL.md`. `ez library-query QUERY --library NAME [--limit 5]` accepts only search arguments and is eligible for an explicit core channel grant; writes and lifecycle operations remain unavailable through that alias.
 
 ## Default attachment intake
 
