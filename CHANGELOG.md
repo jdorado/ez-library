@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add a dedicated `library-query` alias that forces read-only Library search and
+  declares the bounded channel-query exposure required by core public-channel
+  grants. The existing full Library CLI remains owner-only.
+
 ## 0.1.0-beta.13
 
 - Respect Git ignore rules during sync: ignored caches remain local without blocking valid files. Preserve merge-conflict and overwrite protections.
