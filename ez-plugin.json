@@ -10,7 +10,7 @@
     },
     "library-file": {
       "executable": "bin/ez-library.mjs",
-      "args": ["file"],
+      "args": [],
       "channelFile": true,
       "exposure": {
         "receivesExternalContent": true,
