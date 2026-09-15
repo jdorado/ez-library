@@ -1,6 +1,6 @@
 ---
 name: library
-description: Save owner attachments by default, extract PDF text, and store and retrieve files in an agent's Ez Library, search notes with QMD, and configure explicit storage and backup policy using existing provider tools.
+description: Save owner attachments by default, retrieve and share original files, extract PDF text, search notes with QMD, and configure explicit storage and backup policy in an agent's Ez Library using existing provider tools.
 ---
 
 Use the owning agent's registered `ez library` command. Read `--help` and `doctor` to inspect the installed version, private state and configuration. Installation is usable only after a real local file can be saved and retrieved, and a QMD search finds its source. The service health check alone is insufficient.
@@ -56,6 +56,26 @@ Choose the smallest authorized collection. Input files enter through stdin (`put
 Configure the local mode first unless the user already chose a provider. `settings` returns its revision; `configure` reads validated JSON on stdin and requires `--expected new` or that revision and a stable `--key`. The schema and provider choices are in [persistence](../../docs/persistence.md). Handle available technical setup autonomously within the user's authorized task; ask only for missing destination decisions or unavoidable provider consent.
 
 Native QMD commands are under `ez library qmd`. Add `/state/files` as an explicitly named collection with a Markdown/TXT mask. Search returns indexed snapshots; verify selected sources with Library readback before current factual claims or edits. Collection names are not permissions: every caller of this plugin can read its whole private volume. Do not combine another agent's private files with this index by implication.
+
+## Share the original file by default
+
+When the owner asks to send, share, attach or download a Library file or a
+source from Library search results, deliver the matching stored original
+byte-for-byte. A request for the first file or source means the first matching
+original in the current result or list, not a new document made from its indexed
+text. Use QMD results and derived companions only to locate the source. If a
+result is extracted text or a Markdown companion, follow its recorded original
+Library path and SHA-256, retrieve that file with `get --raw`, verify the hash,
+and use the active channel's file/document delivery mechanism. Preserve the
+original filename, extension, media type and bytes.
+
+Do not reconstruct, paginate, print, render or convert indexed text into a
+substitute file unless the owner explicitly asks for an export, conversion,
+excerpt, compilation or other derived copy. If the original is absent or cannot
+be retrieved, say so plainly and offer the derived alternative; do not create or
+send it first, and never label it as the unchanged original. If multiple
+originals remain plausible and the owner's wording or prior list does not select
+one, ask a concise clarification instead of choosing a derivative.
 
 Semantic embeddings are off by default. When the owner requests enablement, use the bound `ez plugins shared-enable library embeddings`; the host manager reuses or creates the compatible worker. Check `ez library doctor` for both service and private-index readiness before claiming semantic search works, then verify an actual result. Use `query 'vec: the question' -c collection --no-rerank --json -n 5`. Expansion/reranking and per-agent `pull` are unavailable. Never create a standalone embedding container or mount a Docker socket. `shared-disable library embeddings` detaches only this client.
 
