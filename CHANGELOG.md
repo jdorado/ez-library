@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-beta.14
+
+- Sync existing Git checkouts and normalize text-mirror destinations without
+  renaming stored originals. Preserve native provider synchronization boundaries.
+- Keep channel search read-only during writes and expose approved original-file
+  readback. Sharing requests prefer the stored original over a derived export.
 
 - Add a dedicated `library-query` alias that forces read-only Library search and
   declares the bounded channel-query exposure required by core public-channel
