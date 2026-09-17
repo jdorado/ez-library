@@ -8,6 +8,13 @@ See [existing-folder setup and sync policy](docs/folder-sync.md) and [GitHub-onl
 
 ## Multiple libraries
 
+The read-only `library-file` command retrieves an original for authorized channel
+attachment delivery: `ez library-file --library NAME -- documents/manual.pdf`.
+Supply the exact relative path of the original within the selected Library, not
+a QMD URI or extracted-text companion. It emits only file bytes, capped at 20 MiB;
+Ez controls the recipient and attachment delivery. The command rejects other
+options, traversal and symlinks. It does not grant Library writes or send messages.
+
 Use [named libraries](docs/named-libraries.md) for independent repositories or
 folders in one installation. `sources` lists names and destinations;
 `source-add --name work --description 'Company documentation'` creates isolated
@@ -33,7 +40,7 @@ ez library --help
 ez library doctor
 ```
 
-Installation snapshots/builds the package without starting it. `start`, `stop`, `status` and `uninstall` are provided by `ez plugins`. Do not start a parallel standalone deployment for an installed agent. The manifest identifies plugin `library`, command `library`, and skill `skills/library/SKILL.md`.
+Installation snapshots/builds the package without starting it. `start`, `stop`, `status` and `uninstall` are provided by `ez plugins`. Do not start a parallel standalone deployment for an installed agent. The manifest identifies plugin `library`, owner command `library`, restricted read-only alias `library-query`, and skill `skills/library/SKILL.md`. `ez library-query QUERY --library NAME [--limit 5]` accepts only search arguments and is eligible for an explicit core channel grant; writes and lifecycle operations remain unavailable through that alias.
 
 ## Default attachment intake
 

@@ -36,14 +36,19 @@ try {
   const put = await parse(['library', 'put', '--path', 'notes/registry.md', '--expected', 'new', '--key', 'registry-1'], note);
   assert.equal(put.data.state, 'stored');
   assert.equal(await call(['library', 'get', '--path', 'notes/registry.md', '--raw']), note);
+  assert.equal(await call(['library-file', '--library', 'default', '--', 'notes/registry.md']), note);
+  await assert.rejects(call(['library-file', 'put', '--path', 'forbidden.md']), /Supply file/);
+  await assert.rejects(call(['library-file', '--library', 'default', '--', '../settings.json']), /relative path/);
   await call(['library', 'qmd', 'collection', 'add', '/state/files', '--name', 'library']);
   assert.match(await call(['library', 'qmd', 'search', 'violet', '--json']), /registry\.md/);
+  assert.match(await call(['library-query', 'violet', '--library', 'default', '--limit', '5']), /registry\.md/);
+  await assert.rejects(call(['library-query', 'put', '--path', 'forbidden.md']), /Unknown option|Supply one quoted search query/);
   await call(['plugins', 'stop', 'library']); await call(['plugins', 'start', 'library']);
   assert.equal((await parse(['library', 'operation', '--key', 'registry-1'])).data.state, 'stored');
   assert.equal((await parse(['library', 'put', '--path', 'notes/registry.md', '--expected', 'new', '--key', 'registry-1'], note)).data.replay, true);
   await call(['plugins', 'uninstall', 'library']);
   const volumes = execFileSync('docker', ['volume', 'ls', '--filter', `label=com.docker.compose.project=${record.project}`, '--format', '{{.Name}}'], { encoding: 'utf8' }).trim();
-  assert(volumes); console.log(JSON.stringify({ ok: true, revision: inspected.revision, checks: ['inert-install', 'registered-dispatch', 'stdin-raw-readback', 'qmd-retrieval', 'restart-persistence', 'idempotency', 'data-preserving-uninstall'] }));
+  assert(volumes); console.log(JSON.stringify({ ok: true, revision: inspected.revision, checks: ['inert-install', 'registered-dispatch', 'stdin-raw-readback', 'qmd-retrieval', 'channel-query-only', 'channel-file-only', 'restart-persistence', 'idempotency', 'data-preserving-uninstall'] }));
 } finally {
   if (record) {
     execFileSync('docker', ['compose', '-p', record.project, '-f', record.compose, 'down', '--volumes'], { stdio: 'ignore' });
