@@ -6,7 +6,13 @@
   "commands": {
     "library": {
       "executable": "bin/ez-library.mjs",
-      "args": []
+      "args": [],
+      "exposure": {
+        "receivesExternalContent": true,
+        "sendsExternally": true,
+        "changesRecords": true,
+        "requiresReview": true
+      }
     },
     "library-file": {
       "executable": "bin/ez-library.mjs",

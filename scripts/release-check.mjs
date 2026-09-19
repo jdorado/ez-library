@@ -6,11 +6,22 @@ import {verifyPublishingSettings} from './publish-settings.mjs';
 assert.equal(readFileSync('docker/pnpm-lock.yaml','utf8'),readFileSync('pnpm-lock.yaml','utf8'),'Refresh docker/pnpm-lock.yaml after dependency changes');
 const p=JSON.parse(readFileSync('package.json','utf8'));
 const publishSettings=verifyPublishingSettings(p,readFileSync('.github/workflows/publish-beta.yml','utf8'));
+const manifest=JSON.parse(readFileSync('ez-plugin.json','utf8'));
+const exposureFields=['receivesExternalContent','sendsExternally','changesRecords','requiresReview'].sort();
+const expectedExposure={receivesExternalContent:true,sendsExternally:true,changesRecords:true,requiresReview:true};
+const readOnlyExposure={receivesExternalContent:true,sendsExternally:false,changesRecords:false,requiresReview:false};
+assert.equal(manifest.version,p.version,'package and Ez manifest versions differ');
+for(const [alias,command] of Object.entries(manifest.commands||{})) {
+  assert.deepEqual(Object.keys(command.exposure||{}).sort(),exposureFields,`Command ${alias} must declare every exposure field`);
+  for(const field of exposureFields) assert.equal(typeof command.exposure[field],'boolean',`Command ${alias} exposure.${field} must be boolean`);
+}
+assert.deepEqual(manifest.commands.library?.exposure,expectedExposure,'library exposure must conservatively describe its broad read/write/sync surface');
+for(const alias of ['library-file','library-query']) assert.deepEqual(manifest.commands[alias]?.exposure,readOnlyExposure,`${alias} must remain read-only`);
 const [pack]=JSON.parse(execFileSync('npm',['pack','--dry-run','--ignore-scripts','--json'],{encoding:'utf8'}));
 const names=pack.files.map(f=>f.path);
 for(const required of ['LICENSE','README.md','SECURITY.md','CONTRIBUTING.md','CHANGELOG.md','THIRD_PARTY_NOTICES.md','Dockerfile','.dockerignore','docker/pnpm-lock.yaml']) assert(names.includes(required),`Missing ${required}`);
 for(const name of names) assert(!/^agent\//.test(name) && !/(^|\/)(node_modules|\.git|\.private|todo\.md|principles\.md|backlog\.md|sprints\.md)(\/|$)|(^|\/)\.env$|\.(tgz|log)$|(^|\/)(qa|plugin-manager-qa|spec-benchmark)\.md$/.test(name),`Private/internal package entry: ${name}`);
 for(const entry of p.files) assert(names.some(name=>name===entry || name.startsWith(entry+'/')),`Declared package entry missing: ${entry}`);
 for(const bin of Object.values(p.bin||{})) assert(names.includes(bin),`Missing binary ${bin}`);
-if(names.includes('ez-plugin.json')) assert.equal(JSON.parse(readFileSync('ez-plugin.json')).version,p.version);
+if(names.includes('ez-plugin.json')) assert.equal(manifest.version,p.version);
 console.log(JSON.stringify({...publishSettings,files:names,unpackedSize:pack.unpackedSize},null,2));
