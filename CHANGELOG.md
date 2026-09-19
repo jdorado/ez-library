@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-beta.15
+
+- Declare the full Library command's external-content, outbound, record-change
+  and review exposure contract, and validate command exposure metadata during
+  release checks.
+
 ## 0.1.0-beta.14
 
 - Sync existing Git checkouts and normalize text-mirror destinations without
