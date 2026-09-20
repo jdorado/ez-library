@@ -1,6 +1,6 @@
 # Ez Library
 
-A separate Dockerized plugin for an agent's files and QMD search. Preserve original Markdown and attachments, retrieve relevant notes, and record where the agent should persist them using its existing provider tools.
+A separate Dockerized plugin for an agent's files, curated memory and QMD search. Preserve original Markdown and attachments, retrieve relevant notes, and record where the agent should persist them using its existing provider tools.
 
 **Unreleased beta.** QMD supplies search; native rclone bisync supplies explicitly enabled folder synchronization. Existing-folder adoption, automatic indexing and guarded organization are implemented. Native Drive/Dropbox connections require separate authorization and remote QA. GitHub-only sync uses native Git and a repository-specific deploy key registered through the existing GitHub plugin. Hybrid remains an agent-owned persistence policy, not an automatic sync backend. OCR and versioned cloud backup/restore are not supplied. No relay changes are required.
 
@@ -24,6 +24,15 @@ QMD results. Existing files remain in `default` without migration.
 
 For Drive/Obsidian workspaces, add [GitHub text history](docs/text-mirror.md)
 without moving attachments or changing the working folder.
+
+## Curated agent memory
+
+The same Library plugin provides an explicit `memory` namespace for a small,
+source-linked set of durable agent preferences, facts, decisions, relationships
+and project context. Memory records live under private `/state/memory` and are
+not archived files, QMD documents, or an automatic transcript of every
+conversation. The native agent decides what to remember and when to trust or
+review it. See [curated agent memory](docs/memory.md).
 
 ## Requirements and installation
 
@@ -65,7 +74,7 @@ ez library qmd search 'passport' -c library --json -n 5
 ez library qmd get qmd://library/notes/travel.md
 ```
 
-`get` returns the content hash and size; `get --raw` emits exact bytes, including binary attachments. Files enter on stdin, so the plugin does not mount the agent workspace or infer host file access. Readback proves local storage only. Each agent's registry provides a separate data volume; never share it across identities merely to share search.
+`get` returns the content hash and size; `get --raw` emits exact bytes, including binary attachments. Files enter on stdin, so the plugin does not mount the agent workspace or infer host file access. Readback proves local storage only. Each agent's registry provides a separate data volume; never share it across identities merely to share search. Curated memory uses the separate `memory` namespace and is written through guarded records rather than `put`.
 
 Semantic embeddings are **off by default**. Enable them explicitly through the owning agent's host manager:
 
@@ -106,7 +115,7 @@ Maximum intake is 512 MiB per file. Hidden paths, traversal, symlinks and specia
 
 ## State, lifecycle and limits
 
-The named `data` volume contains `/state/files`, `settings.json`, `operations`, `history`, `tmp`, and `qmd`. Private state is not encrypted at rest. Native rclone credentials belong only in `/state/sync/rclone.conf`, outside mirrored files and settings. Adopted-folder state and receipts live under `/state/sync`; extracted PDF text lives under `/state/index-text`. The service supervises enabled native sync; commands run through the manager's isolated client containers. Its health check proves the CLI loads, not search readiness or persistence.
+The named `data` volume contains `/state/files`, `/state/memory`, `settings.json`, `operations`, `history`, `tmp`, and `qmd`. Private state is not encrypted at rest. Native rclone credentials belong only in `/state/sync/rclone.conf`, outside mirrored files and settings. Adopted-folder state and receipts live under `/state/sync`; extracted PDF text lives under `/state/index-text`. The service supervises enabled native sync; commands run through the manager's isolated client containers. Its health check proves the CLI loads, not search readiness or persistence. Memory records are local agent state in this release; they are not automatically mirrored to a cloud provider.
 
 Stop the plugin before an operator takes a volume snapshot using an existing backup tool. Preserve originals, settings, receipts and history together. QMD indexes/models are rebuildable. Uninstall removes the deployment and registry binding but preserves volumes. Account revocation is a separate action in the provider's plugin/account. See [release and rollback practices](docs/releasing.md).
 

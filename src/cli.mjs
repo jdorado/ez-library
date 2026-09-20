@@ -14,14 +14,20 @@ import { embeddingStatus } from './embedding-client.mjs';
 import { addLibrary, selectLibrary, sources, searchLibraries } from './libraries.mjs';
 import { mirrorAdopt, mirrorStatus, mirrorPolicy } from './git-mirror.mjs';
 import { gitKey, gitAdopt, git } from './git-sync.mjs';
+import { memoryRemember, memoryRecall, memoryGet, memoryOperation, memoryStatus } from './memory.mjs';
 
 const version = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url))).version;
 const emit = data => process.stdout.write(JSON.stringify({ ok: true, data }) + '\n');
 const help = `ez-library ${version}
-Local library files, QMD retrieval, and persistence settings.
+Local library files, curated agent memory, QMD retrieval, and persistence settings.
 
   sources                         List names, purposes, destinations and sync status
   source-add --name NAME --description TEXT  Add an isolated local library
+  memory remember --expected new|HASH --key KEY < memory.json  Store one curated agent memory
+  memory recall [QUERY] [--kind KIND] [--tag TAG] [--limit 5]  Recall active memories
+  memory get --id ID                         Read one memory and its revision
+  memory operation --key KEY                 Reconcile a memory write receipt
+  memory status                              Count memories and review-due records
   search QUERY [--library NAME | --all] [--limit 5]  QMD keyword results by library
   COMMAND --library NAME ...       Select a library (required when more than one)
   qmd|git|rclone --library NAME ... Selector must precede native arguments
@@ -80,16 +86,19 @@ async function runNative(root, executable, args, stdio = 'inherit') {
     child.once('exit', (code, signal) => { cleanup(); resolve(code ?? (signal ? 130 : 4)); });
   });
 }
-async function readSettingsInput() {
+async function readJsonInput(label, maxBytes = 65536) {
   const parts = []; let bytes = 0;
   for await (const chunk of process.stdin) {
-    bytes += chunk.length; if (bytes > 65536) fail('TOO_LARGE', 'Settings exceed 64 KiB');
+    bytes += chunk.length; if (bytes > maxBytes) fail('TOO_LARGE', `${label} exceeds ${maxBytes} bytes`);
     parts.push(chunk);
   }
   let parsed;
   try { parsed = JSON.parse(Buffer.concat(parts).toString('utf8')); }
-  catch { fail('INVALID', 'Settings must be valid JSON'); }
-  return validateSettings(parsed);
+  catch { fail('INVALID', `${label} must be valid JSON`); }
+  return parsed;
+}
+async function readSettingsInput() {
+  return validateSettings(await readJsonInput('Settings'));
 }
 export async function main(argv = process.argv.slice(2)) {
   try {
@@ -104,6 +113,40 @@ export async function main(argv = process.argv.slice(2)) {
     if (command === 'source-add') {
       const { values } = parseArgs({ args, options: { name: { type: 'string' }, description: { type: 'string' } }, strict: true });
       emit(await addLibrary(base, values.name, values.description)); return;
+    }
+    if (command === 'memory') {
+      const [subcommand, ...memoryArgs] = args;
+      if (!subcommand || subcommand === '--help' || subcommand === 'help') { process.stdout.write(help); return; }
+      if (subcommand === 'remember') {
+        const { values, positionals } = parseArgs({ args: memoryArgs, allowPositionals: true,
+          options: { expected: { type: 'string' }, key: { type: 'string' }, json: { type: 'boolean' } }, strict: true });
+        if (positionals.length) fail('INVALID', 'Memory remember reads one JSON object from stdin');
+        emit(await memoryRemember(base, await readJsonInput('Memory'), { key: values.key, expected: values.expected })); return;
+      }
+      if (subcommand === 'recall') {
+        const { values, positionals } = parseArgs({ args: memoryArgs, allowPositionals: true,
+          options: { kind: { type: 'string' }, tag: { type: 'string' }, limit: { type: 'string' }, 'include-inactive': { type: 'boolean' }, json: { type: 'boolean' } }, strict: true });
+        if (positionals.length > 1) fail('INVALID', 'Supply one quoted memory recall query');
+        emit(await memoryRecall(base, positionals[0] || '', { kind: values.kind, tag: values.tag,
+          limit: values.limit === undefined ? 5 : Number(values.limit), includeInactive: values['include-inactive'] })); return;
+      }
+      if (subcommand === 'get') {
+        const { values, positionals } = parseArgs({ args: memoryArgs, allowPositionals: true,
+          options: { id: { type: 'string' }, json: { type: 'boolean' } }, strict: true });
+        if (positionals.length) fail('INVALID', 'Supply --id');
+        emit(await memoryGet(base, values.id)); return;
+      }
+      if (subcommand === 'operation') {
+        const { values, positionals } = parseArgs({ args: memoryArgs, allowPositionals: true,
+          options: { key: { type: 'string' }, json: { type: 'boolean' } }, strict: true });
+        if (positionals.length) fail('INVALID', 'Supply --key');
+        emit(await memoryOperation(base, values.key)); return;
+      }
+      if (subcommand === 'status') {
+        parseArgs({ args: memoryArgs, options: { json: { type: 'boolean' } }, strict: true });
+        emit(await memoryStatus(base)); return;
+      }
+      fail('INVALID', 'Unknown memory command; use --help');
     }
     // Native argv is otherwise untouched; never consume a provider's own flags.
     let name;

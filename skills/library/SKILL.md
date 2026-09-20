@@ -5,6 +5,37 @@ description: Save owner attachments by default, retrieve and share original file
 
 Use the owning agent's registered `ez library` command. Read `--help` and `doctor` to inspect the installed version, private state and configuration. Installation is usable only after a real local file can be saved and retrieved, and a QMD search finds its source. The service health check alone is insufficient.
 
+## Curated agent memory is separate from the archive
+
+Use the same plugin's explicit `ez library memory` namespace for a small set of
+durable, source-linked agent memories. This is agent state, not a second Library
+or a second agent runner. The native agent decides what deserves memory; the
+plugin only validates, stores, filters and reports revisions.
+
+- Use `memory remember` for an explicit owner preference, stable fact, decision,
+  relationship or project context. Include a useful `source`, confidence and a
+  `reviewAt` when the fact can age.
+- Use `put` for files, notes, transcripts, PDFs and other material that should
+  remain exactly retrievable. A memory may point to an archived file; do not
+  copy the file into `memory/`.
+- Before relying on an existing preference or decision, use `memory recall` and
+  inspect its source and freshness. Do not treat a review-due record as current
+  without checking it.
+- Do not write every turn or silently promote arbitrary document text into
+  memory. There is no automatic conversation capture or memory decay job.
+
+Example:
+
+```sh
+printf '%s\n' '{"id":"owner.preference.response-style","kind":"preference","content":"Prefer concise answers with the important caveat included.","source":{"type":"conversation","ref":"turn:owner-preference"},"confidence":"high","reviewAt":"2027-03-18T00:00:00Z"}' \
+  | ez library memory remember --expected new --key memory:response-style:1
+ez library memory recall "response style" --limit 5
+```
+
+Memory commands are scoped to the owning agent's private state and do not take
+`--library`. Use `sources` and the selected library for file/archive work. See
+[curated agent memory](../../docs/memory.md) for the record contract.
+
 ## Drive workspace and GitHub text history
 
 For a PC/Obsidian workspace that the agent also edits, keep Drive as the complete
