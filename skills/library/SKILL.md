@@ -112,7 +112,7 @@ Use the provider's deploy-key list to find the matching public key when revocati
 
 ## Remote persistence (native bindings only)
 
-There is one supported path per destination: an adopted folder binding ([folder sync](../../docs/folder-sync.md)) for Drive/Dropbox via native rclone bisync, or a Git binding ([GitHub setup](../../docs/github-sync.md)) for GitHub via native Git. Hybrid routing (small text to GitHub, larger media to Drive) is declared in settings; the bindings execute it. Do not hand-upload per save batch through provider tools, keep a separate mirror manifest, or claim sync from settings alone. A failed transfer stays pending for the next cycle; it is not a verified remote save. OCR and versioned remote backup are not supplied by this package.
+There is one supported path per bound destination: an adopted folder binding ([folder sync](../../docs/folder-sync.md)) for Drive/Dropbox via native rclone bisync, or a Git binding ([GitHub setup](../../docs/github-sync.md)) for GitHub via native Git. Where a binding exists it is the only writer — do not hand-upload to that same destination, keep a separate mirror manifest, or claim sync from settings alone. Hybrid split routing has no automatic binding: it remains agent-owned execution through provider tools per [persistence policy](../../docs/persistence.md). A failed transfer stays pending for the next cycle; it is not a verified remote save. OCR and versioned remote backup are not supplied by this package.
 
 For an existing Git checkout mounted at `files`, use `git-adopt
 --existing-checkout` only with an explicit writable mount and matching branch

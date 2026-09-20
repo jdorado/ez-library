@@ -88,7 +88,7 @@ Only embedding/tokenizer inference is shared. Use structured `vec:` queries with
 
 Drive and GitHub persistence keep ordinary files at their original relative paths: PDFs, Markdown and zero-byte files can be browsed directly. No archive or base64 bundle substitutes for the current tree. GitHub does not represent empty directories. Provider revision history remains separate from the visible current files.
 
-For an adopted folder, the resident service runs native bisync and indexes changes. The default interval is 60 seconds after each completed cycle, so transfers and embedding add latency. There is one writer per destination: the native binding. Never run a second manual writer against the same destination.
+For an adopted folder, the resident service runs native bisync and indexes changes. The default interval is 60 seconds after each completed cycle, so transfers and embedding add latency. Where a native binding exists, it is the only writer for that destination. Never run a second manual writer against a bound destination.
 
 ## Backup after each save
 
