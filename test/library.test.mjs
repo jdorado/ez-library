@@ -59,6 +59,8 @@ test('bounds and interrupted input leave no partial target or active lock', asyn
   const broken = Readable.from((async function* () { yield 'part'; throw Error('interrupted'); })());
   await assert.rejects(put(root, 'partial.md', broken, { key: 'broken', expected: 'new' }), /interrupted/);
   assert.deepEqual(await fs.readdir(path.join(root, 'tmp')), []);
+  assert.deepEqual(await fs.readdir(path.join(root, 'files')), ['notes']);
+  assert.deepEqual(await fs.readdir(path.join(root, 'files/notes')), []);
   await assert.rejects(fs.stat(path.join(root, 'files/partial.md')), code('ENOENT'));
   await assert.rejects(fs.stat(path.join(root, '.writer-lock')), code('ENOENT'));
 });

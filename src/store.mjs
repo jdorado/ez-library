@@ -124,7 +124,8 @@ export async function put(root, relative, input, { key, expected, kind = 'file',
     await safePath(root, path.relative(root, receiptFile));
     if (kind === 'file' && (typeof relative !== 'string' || !relative)) fail('INVALID', 'Supply a relative file path');
     const target = await safePath(root, kind === 'settings' ? 'settings.json' : 'files/' + relative, true);
-    const temp = path.join(root, 'tmp', randomUUID());
+    // files may be a separate bind mount: stage on the destination filesystem.
+    const temp = path.join(path.dirname(target), '.ez-library-put-' + randomUUID() + '.tmp');
     let bytes = 0; const sha = createHash('sha256');
     try {
       await pipeline(input, new Transform({ transform(chunk, encoding, cb) {
