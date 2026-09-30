@@ -18,8 +18,8 @@ try {
   docker(['volume', 'create', volume]);
   docker(['volume', 'create', filesVolume]);
   // Real separate mount boundaries reproduce the former EXDEV rename failure.
-  docker(['run', '--rm', '--network', 'none', '-v', volume + ':/state', '-v', filesVolume + ':/state/files',
-    image, 'node', '-e', `const fs=require('node:fs');fs.mkdirSync('/state/tmp',{recursive:true});fs.writeFileSync('/state/tmp/probe','synthetic');try{fs.renameSync('/state/tmp/probe','/state/files/.probe');throw Error('Fixture must reject cross-mount rename');}catch(e){if(e.code!=='EXDEV')throw e;}finally{fs.rmSync('/state/tmp/probe',{force:true});fs.rmSync('/state/files/.probe',{force:true});}`]);
+  docker(['run', '--rm', '--network', 'none', '--user', '0:0', '-v', volume + ':/state', '-v', filesVolume + ':/state/files',
+    image, 'node', '-e', `const fs=require('node:fs');fs.mkdirSync('/state/tmp',{recursive:true});for(const p of ['/state/tmp','/state/files']){fs.chownSync(p,1000,1000);fs.chmodSync(p,0o700);}fs.writeFileSync('/state/tmp/probe','synthetic');try{fs.renameSync('/state/tmp/probe','/state/files/.probe');throw Error('Fixture must reject cross-mount rename');}catch(e){if(e.code!=='EXDEV')throw e;}finally{fs.rmSync('/state/tmp/probe',{force:true});fs.rmSync('/state/files/.probe',{force:true});}`]);
   assert.match(call(['--help']), /Local library/);
   assert.equal(parsed(['doctor']).configured, false);
   parsed(['configure', '--expected', 'new', '--key', 'settings'], JSON.stringify({ schemaVersion: 1, storage: { mode: 'local' }, backup: { mode: 'off' } }));
