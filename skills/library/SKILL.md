@@ -53,6 +53,15 @@ Refresh the appropriate QMD collection after saving derived text (`qmd update`);
 
 Choose the smallest authorized collection. Input files enter through stdin (`put --path notes/example.md --expected new --key stable-key < source.md`); no host workspace is mounted. Use `get --path ...` for current hashes and `get --raw` for exact bytes. Choose operation keys per logical write and retain them until its outcome is known. Updates require the latest hash; a conflict means re-read and reconsider the update, not force overwrite. `operation --key ...` reconciles current bytes after interruption.
 
+If exact raw output exceeds the executor allowance, read metadata, then call
+`get --path ... --offset 0 --length 524288 --expected SHA256`. Each response
+contains base64 `content`, actual `length`, `chunkSha256`, source `bytes` and
+`sha256`, `nextOffset`, and `eof`. Verify each decoded chunk and contiguous
+offset; continue at `nextOffset` to EOF, then verify the assembled size/hash.
+All three range flags are required; do not combine them with `--raw`.
+A changed source returns a conflict before emitting content. Re-read metadata
+and restart assembly rather than combining different revisions.
+
 Configure the local mode first unless the user already chose a provider. `settings` returns its revision; `configure` reads validated JSON on stdin and requires `--expected new` or that revision and a stable `--key`. The schema and provider choices are in [persistence](../../docs/persistence.md). Handle available technical setup autonomously within the user's authorized task; ask only for missing destination decisions or unavoidable provider consent.
 
 Native QMD commands are under `ez library qmd`. Add `/state/files` as an explicitly named collection with a Markdown/TXT mask. Search returns indexed snapshots; verify selected sources with Library readback before current factual claims or edits. Collection names are not permissions: every caller of this plugin can read its whole private volume. Do not combine another agent's private files with this index by implication.

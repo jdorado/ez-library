@@ -36,6 +36,17 @@ try {
   const put = await parse(['library', 'put', '--path', 'notes/registry.md', '--expected', 'new', '--key', 'registry-1'], note);
   assert.equal(put.data.state, 'stored');
   assert.equal(await call(['library', 'get', '--path', 'notes/registry.md', '--raw']), note);
+  const large = Buffer.alloc(1024 * 1024 + 17, 0xff);
+  const largePut = await parse(['library', 'put', '--path', 'media/large.bin', '--expected', 'new', '--key', 'range-1'], large);
+  const decoded = []; let offset = 0;
+  while (offset < large.length) {
+    const range = (await parse(['library', 'get', '--path', 'media/large.bin', '--offset', String(offset), '--length', '524288', '--expected', largePut.data.sha256])).data;
+    assert.equal(range.offset, offset); assert.equal(range.sha256, largePut.data.sha256);
+    decoded.push(Buffer.from(range.content, 'base64')); offset = range.nextOffset;
+    assert.equal(range.eof, offset === large.length);
+  }
+  assert.deepEqual(Buffer.concat(decoded), large);
+  await assert.rejects(call(['library', 'get', '--path', 'media/large.bin', '--offset', '0', '--length', '1', '--expected', '0'.repeat(64)]), /CONFLICT/);
   assert.equal(await call(['library-file', '--library', 'default', '--', 'notes/registry.md']), note);
   await assert.rejects(call(['library-file', 'put', '--path', 'forbidden.md']), /Supply file/);
   await assert.rejects(call(['library-file', '--library', 'default', '--', '../settings.json']), /relative path/);

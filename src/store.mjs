@@ -11,6 +11,7 @@ export class LibraryError extends Error {
 export const fail = (code, message) => { throw new LibraryError(code, message); };
 export const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_FILE_BYTES = 512 * 1024 * 1024;
+export const MAX_READ_BYTES = 512 * 1024;
 export const defaults = () => ({ schemaVersion: 1, storage: { mode: 'local' }, backup: { mode: 'off' } });
 
 function keys(value, allowed) {
@@ -95,6 +96,33 @@ export async function digest(file) {
     const sha = createHash('sha256'); let bytes = 0;
     for await (const chunk of handle.createReadStream({ autoClose: false })) { sha.update(chunk); bytes += chunk.length; }
     return { bytes, sha256: sha.digest('hex') };
+  } finally { await handle.close(); }
+}
+export async function readRange(file, { offset, length, expected }) {
+  if (!/^(0|[1-9][0-9]*)$/.test(offset ?? '') || !/^[1-9][0-9]*$/.test(length ?? '') ||
+      !Number.isSafeInteger(Number(offset)) || !Number.isSafeInteger(Number(length)) ||
+      Number(length) > MAX_READ_BYTES || !/^[a-f0-9]{64}$/.test(expected ?? '')) {
+    fail('INVALID', 'Ranges require --offset BYTE, --length 1..524288 and --expected SHA256');
+  }
+  offset = Number(offset); length = Number(length);
+  const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    if (!(await handle.stat()).isFile()) fail('UNSAFE_PATH', 'Expected a regular file');
+    const sha = createHash('sha256'), chunks = []; let bytes = 0;
+    // Hash and collect from one descriptor/pass: an atomic replacement cannot
+    // make the returned range belong to a different source revision.
+    for await (const chunk of handle.createReadStream({ autoClose: false })) {
+      sha.update(chunk);
+      const start = Math.max(0, offset - bytes), end = Math.min(chunk.length, offset + length - bytes);
+      if (end > start) chunks.push(chunk.subarray(start, end));
+      bytes += chunk.length;
+    }
+    const sha256 = sha.digest('hex');
+    if (sha256 !== expected) fail('CONFLICT', 'File changed; re-read metadata before requesting ranges');
+    if (offset > bytes) fail('INVALID', 'Offset exceeds file size');
+    const data = Buffer.concat(chunks), nextOffset = offset + data.length;
+    return { bytes, sha256, offset, length: data.length, chunkSha256: hash(data), encoding: 'base64',
+      content: data.toString('base64'), nextOffset, eof: nextOffset === bytes };
   } finally { await handle.close(); }
 }
 async function current(file) { return digest(file).catch(e => { if (e.code === 'ENOENT') return null; throw e; }); }
