@@ -5,7 +5,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { spawnSync } from 'node:child_process';
-import { put, operation, settings, defaults, validateSettings, list, digest, hash } from '../src/store.mjs';
+import { put, operation, settings, defaults, validateSettings, list, digest, readRange, MAX_READ_BYTES, hash } from '../src/store.mjs';
 import { qmdEnvironment } from '../src/cli.mjs';
 
 const cli = new URL('../bin/ez-library.mjs', import.meta.url).pathname;
@@ -27,6 +27,55 @@ test('intake preserves binary bytes, private modes, literal paths and replay acr
   assert.equal((await put(root, relative, input(data), { key: 'binary:1', expected: 'new' })).replay, true);
   const read = spawnSync(process.execPath, [cli, 'get', '--path', relative, '--raw'], { env: { ...process.env, EZ_LIBRARY_STATE: root } });
   assert.equal(read.status, 0); assert.deepEqual(read.stdout, data);
+});
+
+test('bounded reads reconstruct large binary sources with contiguous hashes and EOF', async t => {
+  const root = await fixture(t), data = Buffer.alloc(MAX_READ_BYTES * 2 + 137);
+  for (let i = 0; i < data.length; i++) data[i] = i % 256;
+  const stored = await save(root, data), file = path.join(root, 'files/notes/test.md');
+  const chunks = []; let offset = 0;
+  do {
+    const range = await readRange(file, { offset: String(offset), length: String(MAX_READ_BYTES), expected: stored.sha256 });
+    const chunk = Buffer.from(range.content, range.encoding);
+    assert.equal(range.offset, offset); assert.equal(range.length, chunk.length);
+    assert.equal(range.bytes, data.length); assert.equal(range.sha256, stored.sha256);
+    assert.equal(range.chunkSha256, hash(chunk)); assert.equal(range.nextOffset, offset + chunk.length);
+    assert(Buffer.byteLength(JSON.stringify(range)) < 1024 * 1024);
+    chunks.push(chunk); offset = range.nextOffset;
+    if (range.eof) break;
+  } while (true);
+  assert.deepEqual(Buffer.concat(chunks), data);
+  assert.equal(hash(Buffer.concat(chunks)), stored.sha256);
+  const eof = await readRange(file, { offset: String(data.length), length: '1', expected: stored.sha256 });
+  assert.equal(eof.content, ''); assert.equal(eof.eof, true); assert.equal(eof.length, 0);
+});
+
+test('range contract rejects stale hashes and invalid bounds before emitting bytes', async t => {
+  const root = await fixture(t), stored = await save(root, 'one 🛰 two'), file = path.join(root, 'files/notes/test.md');
+  const valid = { offset: '0', length: '5', expected: stored.sha256 };
+  for (const invalid of [{ offset: undefined }, { length: undefined }, { expected: undefined }, { length: '0' },
+    { offset: '-1' }, { offset: '1.5' }, { offset: '9007199254740992' }, { length: String(MAX_READ_BYTES + 1) },
+    { offset: '999' }, { expected: 'new' }]) {
+    await assert.rejects(readRange(file, { ...valid, ...invalid }), code('INVALID'));
+  }
+  await fs.writeFile(file, 'changed');
+  await assert.rejects(readRange(file, valid), code('CONFLICT'));
+  const read = spawnSync(process.execPath, [cli, 'get', '--path', 'notes/test.md', '--offset', '0', '--length', '5', '--expected', stored.sha256],
+    { env: { ...process.env, EZ_LIBRARY_STATE: root }, encoding: 'utf8' });
+  assert.equal(read.status, 3); assert.equal(read.stdout, ''); assert.match(read.stderr, /CONFLICT/);
+});
+
+test('range CLI returns binary-safe JSON and preserves path and raw boundaries', async t => {
+  const root = await fixture(t), data = Buffer.from([0, 255, 10, 128, 1]), stored = await save(root, data);
+  const args = ['get', '--path', 'notes/test.md', '--offset', '1', '--length', '3', '--expected', stored.sha256];
+  const invoke = argv => spawnSync(process.execPath, [cli, ...argv], { env: { ...process.env, EZ_LIBRARY_STATE: root }, encoding: 'utf8' });
+  const read = invoke(args); assert.equal(read.status, 0);
+  const range = JSON.parse(read.stdout).data;
+  assert.equal(range.path, 'notes/test.md'); assert.deepEqual(Buffer.from(range.content, 'base64'), data.subarray(1, 4));
+  assert.equal(invoke([...args, '--raw']).status, 2);
+  assert.equal(invoke(['get', '--path', '../escape', '--offset', '0', '--length', '1', '--expected', stored.sha256]).status, 2);
+  await fs.symlink(path.join(root, 'files/notes/test.md'), path.join(root, 'files/link'));
+  assert.equal(invoke(['get', '--path', 'link', '--offset', '0', '--length', '1', '--expected', stored.sha256]).status, 2);
 });
 
 test('replacement requires current revision; preserves history; stale replay never overwrites new content', async t => {

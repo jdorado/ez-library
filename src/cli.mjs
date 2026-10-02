@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { constants } from 'node:fs';
-import { fail, rootDir, locked, settings, validateSettings, put, operation, organize, list, safePath, digest, jsonBytes, defaults } from './store.mjs';
+import { fail, rootDir, locked, settings, validateSettings, put, operation, organize, list, safePath, digest, readRange, jsonBytes, defaults } from './store.mjs';
 import { syncPlan, syncAdopt, syncPolicy, syncRun, syncStatus } from './sync.mjs';
 import { rclone, environment } from './native.mjs';
 import { indexStatus } from './indexer.mjs';
@@ -30,6 +30,8 @@ Local library files, QMD retrieval, and persistence settings.
   configure --expected HASH|new --key KEY < settings.json
   put --path RELATIVE --expected HASH|new --key KEY < file
   get --path RELATIVE [--raw]      Metadata/hash, or exact binary stdout
+  get --path RELATIVE --offset BYTE --length BYTES --expected SHA256
+                                  Bounded base64 JSON, at most 524288 bytes
   file --library NAME -- RELATIVE  Original file bytes for channel delivery (20 MiB)
   pdf-text --path RELATIVE         Poppler text to stdout, page breaks retained
   list [--prefix TEXT] [--limit 100]
@@ -168,7 +170,7 @@ export async function main(argv = process.argv.slice(2)) {
       }); return;
     }
     const allowed = { doctor: [], settings: [], configure: ['expected', 'key'], put: ['path', 'expected', 'key'],
-      get: ['path', 'raw'], 'pdf-text': ['path'], list: ['prefix', 'limit'], operation: ['key'],
+      get: ['path', 'raw', 'offset', 'length', 'expected'], 'pdf-text': ['path'], list: ['prefix', 'limit'], operation: ['key'],
       'sync-plan': ['remote'], 'sync-adopt': ['remote'], 'sync-status': [], 'sync-run': [],
       move: ['path', 'to', 'expected', 'key'], remove: ['path', 'expected', 'key'],
       'git-mirror-adopt': ['repository', 'branch', 'extensions', 'exclude-directories', 'expected-remote'], 'git-mirror-status': [], 'git-mirror-policy': ['expected', 'mode'],
@@ -231,7 +233,10 @@ export async function main(argv = process.argv.slice(2)) {
     if (command === 'get') {
       if (!opts.path) fail('INVALID', 'Supply --path');
       const file = await safePath(root, 'files/' + opts.path);
-      if (opts.raw) {
+      if (opts.offset !== undefined || opts.length !== undefined || opts.expected !== undefined) {
+        if (opts.raw) fail('INVALID', 'Range reads emit base64 JSON; omit --raw');
+        emit({ path: opts.path, ...await readRange(file, opts) });
+      } else if (opts.raw) {
         const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
         try {
           if (!(await handle.stat()).isFile()) fail('UNSAFE_PATH', 'Expected a regular file');

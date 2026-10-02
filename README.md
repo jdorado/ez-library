@@ -67,6 +67,16 @@ ez library qmd get qmd://library/notes/travel.md
 
 `get` returns the content hash and size; `get --raw` emits exact bytes, including binary attachments. Files enter on stdin, so the plugin does not mount the agent workspace or infer host file access. Readback proves local storage only. Each agent's registry provides a separate data volume; never share it across identities merely to share search.
 
+For files larger than the executor's output allowance, first read metadata,
+then use `get --path RELATIVE --offset 0 --length 524288 --expected SHA256`.
+Range reads return JSON with base64 `content`, actual `length`, `chunkSha256`,
+full source `bytes` and `sha256`, `nextOffset`, and `eof`. Decode each range,
+verify its digest and contiguous offset, and continue at `nextOffset` until
+`eof`; verify the assembled source size and digest. Every range hashes the
+same open file it reads and rejects a changed source before emitting content.
+Lengths are 1–524288 bytes; an offset at EOF returns an empty final range.
+Range flags require all three values and cannot combine with `--raw`.
+
 Semantic embeddings are **off by default**. Enable them explicitly through the owning agent's host manager:
 
 ```sh
