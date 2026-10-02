@@ -129,7 +129,7 @@ An interrupted command may leave `/state/.writer-lock`, or QMD's own embed lock 
 ```sh
 pnpm install --frozen-lockfile
 pnpm verify
-npm run release:check
+pnpm run release:check
 docker build --target test -t ez-library-tests .
 docker build --target runtime -t ez-library:local .
 EZ_LIBRARY_IMAGE=ez-library:local node docker/smoke.mjs
