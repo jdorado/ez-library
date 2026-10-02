@@ -35,7 +35,8 @@
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "CHANGELOG.md",
-    "patches"
+    "patches",
+    "pnpm-workspace.yaml"
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs",

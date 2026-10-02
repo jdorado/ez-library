@@ -10,3 +10,5 @@
 !THIRD_PARTY_NOTICES.md
 !docs/rclone-LICENSE.txt
 !patches/**
+
+!pnpm-workspace.yaml
