@@ -112,6 +112,8 @@ When the owner asks to enable Drive backup and sync, the onboarded agent copies 
 
 `put --expected new` creates a file. Replacements require the current SHA-256 from `get`, a new operation key, and new bytes on stdin. A matching retry returns the recorded outcome only if current bytes still match. Reusing a key with different content or preconditions fails. `operation --key KEY` reports `stored`, `changed`, or `missing` from actual bytes, including after interruption. Previous content is retained in `/state/history/<sha256>`; an operator can export it from the private volume and restore through a new guarded `put`.
 
+Intake stages a private hidden temporary file beside its destination and atomically renames it under the Library writer lock, including when `/state/files` is a separate mount. No storage migration is needed.
+
 Maximum intake is 512 MiB per file. Hidden paths, traversal, symlinks and special files are unsupported. `move --path SOURCE --to DEST --expected HASH --key KEY` and `remove --path SOURCE --expected HASH --key KEY` preserve recovery bytes and reject stale revisions. Their operation receipts live in the plugin volume, so child tasks do not need to edit a parent workspace manifest. `list --prefix notes/ --limit 100` is bounded and reports truncation; it is not a full backup manifest. All local commands emit JSON except `get --raw`; errors use stderr. Exit codes: 2 invalid input, 3 conflict/busy, 4 unavailable/uncertain. QMD preserves its native codes.
 
 ## State, lifecycle and limits

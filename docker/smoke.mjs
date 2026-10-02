@@ -5,16 +5,21 @@ import { randomUUID, createHash } from 'node:crypto';
 
 const image = process.env.EZ_LIBRARY_IMAGE || 'ez-library:local';
 const volume = 'ez-library-qa-' + randomUUID();
+const filesVolume = volume + '-files';
 const docker = (args, input) => execFileSync('docker', args, { input, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: 180000 });
 const ipc = process.env.EZ_LIBRARY_EMBED_IPC;
 const lastCpu = Math.max(0, Math.min(4, Number(docker(['info', '--format', '{{.NCPU}}']).trim())) - 1);
 const call = (args, input) => docker(['run', '--rm', '--network', 'none', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
-  '--cpuset-cpus', `0-${lastCpu}`, '--memory', '4g', '-i', '-v', volume + ':/state',
+  '--cpuset-cpus', `0-${lastCpu}`, '--memory', '4g', '-i', '-v', volume + ':/state', '-v', filesVolume + ':/state/files',
   ...(ipc ? ['-v', ipc + ':/inference:ro', '-e', 'EZ_LIBRARY_EMBED_SOCKET=/inference/worker.sock'] : []),
   image, 'node', '/app/bin/ez-library.mjs', ...args], input);
 const parsed = (args, input) => JSON.parse(call(args, input)).data;
 try {
   docker(['volume', 'create', volume]);
+  docker(['volume', 'create', filesVolume]);
+  // Real separate mount boundaries reproduce the former EXDEV rename failure.
+  docker(['run', '--rm', '--network', 'none', '--user', '0:0', '-v', volume + ':/state', '-v', filesVolume + ':/state/files',
+    image, 'node', '-e', `const fs=require('node:fs');fs.mkdirSync('/state/tmp',{recursive:true});for(const p of ['/state/tmp','/state/files']){fs.chownSync(p,1000,1000);fs.chmodSync(p,0o700);}fs.writeFileSync('/state/tmp/probe','synthetic');try{fs.renameSync('/state/tmp/probe','/state/files/.probe');throw Error('Fixture must reject cross-mount rename');}catch(e){if(e.code!=='EXDEV')throw e;}finally{fs.rmSync('/state/tmp/probe',{force:true});fs.rmSync('/state/files/.probe',{force:true});}`]);
   assert.match(call(['--help']), /Local library/);
   assert.equal(parsed(['doctor']).configured, false);
   parsed(['configure', '--expected', 'new', '--key', 'settings'], JSON.stringify({ schemaVersion: 1, storage: { mode: 'local' }, backup: { mode: 'off' } }));
@@ -69,5 +74,5 @@ try {
   }
   assert.equal(call(['get', '--library', 'default', '--path', 'notes/travel.md', '--raw']), note);
   assert.match(call(['get', '--library', 'work', '--path', 'notes/travel.md', '--raw']), /approval policy/);
-  console.log(JSON.stringify({ ok: true, checks: ['help-without-state', 'configuration', 'intake-readback', 'idempotency', 'restart-persistence', 'attachment-bytes', 'pdf-extraction-and-retrieval', 'native-qmd-keyword', 'named-library-isolation-and-search', ...(ipc ? ['shared-qmd-semantic'] : [])] }));
-} finally { docker(['volume', 'rm', volume]); }
+  console.log(JSON.stringify({ ok: true, checks: ['cross-mount-atomic-put', 'help-without-state', 'configuration', 'intake-readback', 'idempotency', 'restart-persistence', 'attachment-bytes', 'pdf-extraction-and-retrieval', 'native-qmd-keyword', 'named-library-isolation-and-search', ...(ipc ? ['shared-qmd-semantic'] : [])] }));
+} finally { docker(['volume', 'rm', volume, filesVolume]); }
