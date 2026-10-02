@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-beta.16
+
+- Preserve atomic Library intake when originals use a separate filesystem mount.
+- Read large originals through revision-checked, binary-safe bounded ranges with
+  source and chunk hashes, contiguous offsets and EOF metadata.
+- Existing raw reads, guarded writes, data schema and deployment layout remain
+  compatible.
+
 ## 0.1.0-beta.15
 
 - Declare the full Library command's external-content, outbound, record-change
