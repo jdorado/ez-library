@@ -212,3 +212,12 @@ test('PDF extraction rejects traversal, symlinks, directories and missing paths 
   const result = spawnSync(process.execPath, [cli, 'pdf-text'], { env: { ...process.env, EZ_LIBRARY_STATE: root }, encoding: 'utf8' });
   assert.equal(result.status, 2); assert.match(result.stderr, /Supply --path/);
 });
+
+test('local subcommand help succeeds before configuration or write intake',async t=>{
+ const root=await fixture(t);
+ for(const command of ['put','get','sources','sync-run']) {
+  const result=spawnSync(process.execPath,[cli,command,'--library','absent','--help'],{env:{...process.env,EZ_LIBRARY_STATE:root},input:'must not write',encoding:'utf8'});
+  assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/put --path/);
+ }
+ assert.deepEqual(await fs.readdir(root),[]);
+});

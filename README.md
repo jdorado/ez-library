@@ -136,3 +136,6 @@ EZ_LIBRARY_IMAGE=ez-library:local node docker/smoke.mjs
 ```
 
 CI uses synthetic files only. Real account transfer, clean-host/reboot acceptance and cloud restore must be verified separately before claiming those capabilities. See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) and [QMD upstream](https://github.com/tobi/qmd).
+
+Local Library subcommands accept `--help` without reading configuration or
+consuming stdin. Native `qmd`, `git` and `rclone` retain their own help flags.
