@@ -98,6 +98,9 @@ export async function main(argv = process.argv.slice(2)) {
     if (!argv.length || argv[0] === '--help' || argv[0] === 'help') { process.stdout.write(help); return; }
     if (argv[0] === '--version') { process.stdout.write(version + '\n'); return; }
     const [command, ...args] = argv;
+    // Local help must not select a library, read state or consume write stdin.
+    // Native provider flags remain untouched.
+    if (!['qmd', 'git', 'rclone'].includes(command) && args.includes('--help')) { process.stdout.write(help); return; }
     const base = process.env.EZ_LIBRARY_STATE || '/state';
     if (command === 'sources') {
       parseArgs({ args, options: { json: { type: 'boolean' } }, strict: true });
