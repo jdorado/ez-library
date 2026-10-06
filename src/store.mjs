@@ -144,7 +144,7 @@ export async function settings(root) {
 
 // Receipts record intent before installation. Readback determines stored/changed/missing,
 // including after interruption between the atomic receipt and file renames.
-export async function put(root, relative, input, { key, expected, kind = 'file', maxBytes = MAX_FILE_BYTES } = {}) {
+export async function put(root, relative, input, { key, expected, kind = 'file', maxBytes = MAX_FILE_BYTES, source } = {}) {
   if (expected !== 'new' && !/^[a-f0-9]{64}$/.test(expected || '')) fail('INVALID', 'Supply --expected new or the current SHA-256');
   if (!['file', 'settings'].includes(kind)) fail('INVALID', 'Unknown write kind');
   return locked(root, async root => {
@@ -161,7 +161,8 @@ export async function put(root, relative, input, { key, expected, kind = 'file',
         if (bytes > maxBytes) return cb(new LibraryError('TOO_LARGE', `Input exceeds ${maxBytes} bytes`));
         sha.update(chunk); cb(null, chunk);
       } }), createWriteStream(temp, { flags: 'wx', mode: 0o600 }));
-      const request = { kind, path: kind === 'settings' ? 'settings.json' : relative, bytes, sha256: sha.digest('hex'), expected };
+      const request = { kind, path: kind === 'settings' ? 'settings.json' : relative, bytes, sha256: sha.digest('hex'), expected,
+        ...(source ? { source } : {}) };
       const oldReceipt = await fs.readFile(receiptFile, 'utf8').then(JSON.parse).catch(e => { if (e.code === 'ENOENT') return null; throw e; });
       if (oldReceipt && JSON.stringify(oldReceipt) !== JSON.stringify(request)) fail('KEY_REUSED', 'Operation key was already used with different content or preconditions');
       const before = await current(target);
