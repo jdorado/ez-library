@@ -62,6 +62,20 @@ All three range flags are required; do not combine them with `--raw`.
 A changed source returns a conflict before emitting content. Re-read metadata
 and restart assembly rather than combining different revisions.
 
+When updating your existing block in a shared text record, prefer installed
+`replace --path RELATIVE --key KEY` with JSON `{ "before": "exact old block",
+"after": "complete new block" }` on stdin. Include the block identity and
+boundaries so both are unique. It preserves current unrelated bytes under the
+Library writer lock and fails on a missing or ambiguous old block. This is
+literal replacement, not Markdown interpretation or an ownership grant. Use
+`put` for creation; do not use a tiny repeated phrase as a block identity.
+Input is limited to 256 KiB, valid UTF-8 files to 8 MiB, and both strings must
+be nonempty and different. BUSY requires waiting for the existing writer;
+CONFLICT requires re-reading your own block, not forcing a whole-file rewrite.
+`operation --key KEY` reconciles scoped replacement after interruption: `stored`
+means the unique replacement remains present, while its reported whole-file
+hash may include newer unrelated edits. Retain normal canonical/remote proof.
+
 Configure the local mode first unless the user already chose a provider. `settings` returns its revision; `configure` reads validated JSON on stdin and requires `--expected new` or that revision and a stable `--key`. The schema and provider choices are in [persistence](../../docs/persistence.md). Handle available technical setup autonomously within the user's authorized task; ask only for missing destination decisions or unavoidable provider consent.
 
 Native QMD commands are under `ez library qmd`. Add `/state/files` as an explicitly named collection with a Markdown/TXT mask. Search returns indexed snapshots; verify selected sources with Library readback before current factual claims or edits. Collection names are not permissions: every caller of this plugin can read its whole private volume. Do not combine another agent's private files with this index by implication.
