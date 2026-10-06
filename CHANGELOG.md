@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-beta.16.rc.1
+
+- Release candidate for guarded in-Library gzip and scoped literal text updates
+  from reviewed PRs #41 and #42. Preserve originals, history, operation receipts,
+  the single writer and unchanged data/deployment schemas.
+- Version metadata only beyond the reviewed combined implementation; no npm
+  publication or installed-runtime acceptance is implied by this candidate.
+
 ## 0.1.0-beta.16
 
 - Preserve atomic Library intake when originals use a separate filesystem mount.
