@@ -14,6 +14,7 @@ import { embeddingStatus } from './embedding-client.mjs';
 import { addLibrary, selectLibrary, sources, searchLibraries } from './libraries.mjs';
 import { mirrorAdopt, mirrorStatus, mirrorPolicy } from './git-mirror.mjs';
 import { gitKey, gitAdopt, git } from './git-sync.mjs';
+import { gzipFile } from './compress.mjs';
 
 const version = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url))).version;
 const emit = data => process.stdout.write(JSON.stringify({ ok: true, data }) + '\n');
@@ -29,6 +30,8 @@ Local library files, QMD retrieval, and persistence settings.
   settings                        Show settings and revision hash
   configure --expected HASH|new --key KEY < settings.json
   put --path RELATIVE --expected HASH|new --key KEY < file
+  gzip --path SOURCE --to DEST.gz --expected SOURCE_HASH --key KEY
+                                  Compress inside Library; retain original
   get --path RELATIVE [--raw]      Metadata/hash, or exact binary stdout
   get --path RELATIVE --offset BYTE --length BYTES --expected SHA256
                                   Bounded base64 JSON, at most 524288 bytes
@@ -175,7 +178,7 @@ export async function main(argv = process.argv.slice(2)) {
     const allowed = { doctor: [], settings: [], configure: ['expected', 'key'], put: ['path', 'expected', 'key'],
       get: ['path', 'raw', 'offset', 'length', 'expected'], 'pdf-text': ['path'], list: ['prefix', 'limit'], operation: ['key'],
       'sync-plan': ['remote'], 'sync-adopt': ['remote'], 'sync-status': [], 'sync-run': [],
-      move: ['path', 'to', 'expected', 'key'], remove: ['path', 'expected', 'key'],
+      move: ['path', 'to', 'expected', 'key'], remove: ['path', 'expected', 'key'], gzip: ['path', 'to', 'expected', 'key'],
       'git-mirror-adopt': ['repository', 'branch', 'extensions', 'exclude-directories', 'expected-remote'], 'git-mirror-status': [], 'git-mirror-policy': ['expected', 'mode'],
       'git-key': ['repository'], 'git-adopt': ['repository', 'branch', 'existing-checkout'],
       'sync-policy': ['expected', 'mode', 'interval'] }[command];
@@ -203,6 +206,7 @@ export async function main(argv = process.argv.slice(2)) {
       if (!opts.path) fail('INVALID', 'Supply --path');
       emit(await put(root, opts.path, process.stdin, { key: opts.key, expected: opts.expected })); return;
     }
+    if (command === 'gzip') { emit(await gzipFile(root, opts)); return; }
     if (command === 'doctor') {
       let configured = false; let value = { settings: defaults(), sha256: null };
       try { await rootDir(root); value = await settings(root); configured = value.sha256 !== null; }
