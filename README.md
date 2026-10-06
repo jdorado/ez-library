@@ -77,6 +77,23 @@ same open file it reads and rejects a changed source before emitting content.
 Lengths are 1–524288 bytes; an offset at EOF returns an empty final range.
 Range flags require all three values and cannot combine with `--raw`.
 
+For a shared text file, `replace --path RELATIVE --key KEY` takes a JSON object
+with exactly `before` and `after` strings on stdin. Supply the complete unique
+block you own, including its identity and boundaries. Library reads current
+bytes under its existing writer lock, requires exactly one literal `before`
+match, and atomically replaces only that match. Other blocks, line endings and
+Unicode bytes remain untouched. An absent/ambiguous match is a conflict, never
+a fuzzy merge. Input is capped at 256 KiB and the UTF-8 file at 8 MiB; empty,
+identical or ambiguous resulting blocks are rejected.
+
+The existing history and operation receipt preserve recovery. Same-key replay
+recognizes a unique `after` block even if unrelated text changed later. A
+`stored` replacement receipt proves that block is present, not that the whole
+file remains at its original post-write hash; the response includes the current
+whole-file hash. Re-read a changed owning block rather than replaying stale
+content with a fresh key. This operation adds no caller permissions, lock
+override, automatic retry, append behavior or remote-sync process.
+
 Semantic embeddings are **off by default**. Enable them explicitly through the owning agent's host manager:
 
 ```sh
