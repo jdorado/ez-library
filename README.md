@@ -94,6 +94,17 @@ whole-file hash. Re-read a changed owning block rather than replaying stale
 content with a fresh key. This operation adds no caller permissions, lock
 override, automatic retry, append behavior or remote-sync process.
 
+When a file is already in Library, `gzip --path SOURCE --to DEST.gz
+--expected SOURCE_SHA256 --key KEY` compresses it inside the existing writer
+lock. Only paths and the expected source hash cross the transport; archive
+bytes do not travel through stdin. The source is retained, the destination must
+be new, and existing operation receipts provide replay and interrupted-write
+reconciliation. The receipt binds the source path/size/hash and gzip encoding to
+the stored archive size/hash. Compression is level 9 with no current timestamp.
+Both source and output retain the 512 MiB limit. This command does not update a
+domain archive index, remove evidence or synchronize it remotely; those remain
+explicit owning-workflow steps after verified readback.
+
 Semantic embeddings are **off by default**. Enable them explicitly through the owning agent's host manager:
 
 ```sh
