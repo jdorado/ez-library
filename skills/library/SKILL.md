@@ -76,6 +76,18 @@ CONFLICT requires re-reading your own block, not forcing a whole-file rewrite.
 means the unique replacement remains present, while its reported whole-file
 hash may include newer unrelated edits. Retain normal canonical/remote proof.
 
+For lossless compression of an existing canonical file, inspect installed
+`gzip --help`, then use `gzip --path SOURCE --to DEST.gz --expected SOURCE_SHA256
+--key KEY`. This avoids transferring a large archive through broker stdin.
+It holds the existing Library writer lock, verifies the complete source hash,
+keeps the original and creates only a new destination. Read back the returned
+archive metadata and `operation --key KEY`; a replay requires the same source,
+destination and key. A changed source or occupied destination fails closed.
+The receipt includes the original source size/hash and compression settings.
+Domain indexes and guarded removal remain with the owning procedure; never
+remove the original before its required archive/index/remote proof. Compression
+alone does not prove indexing, remote sync or completion of the domain work.
+
 Configure the local mode first unless the user already chose a provider. `settings` returns its revision; `configure` reads validated JSON on stdin and requires `--expected new` or that revision and a stable `--key`. The schema and provider choices are in [persistence](../../docs/persistence.md). Handle available technical setup autonomously within the user's authorized task; ask only for missing destination decisions or unavoidable provider consent.
 
 Native QMD commands are under `ez library qmd`. Add `/state/files` as an explicitly named collection with a Markdown/TXT mask. Search returns indexed snapshots; verify selected sources with Library readback before current factual claims or edits. Collection names are not permissions: every caller of this plugin can read its whole private volume. Do not combine another agent's private files with this index by implication.
