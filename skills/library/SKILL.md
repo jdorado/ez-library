@@ -62,6 +62,20 @@ All three range flags are required; do not combine them with `--raw`.
 A changed source returns a conflict before emitting content. Re-read metadata
 and restart assembly rather than combining different revisions.
 
+When updating your existing block in a shared text record, prefer installed
+`replace --path RELATIVE --key KEY` with JSON `{ "before": "exact old block",
+"after": "complete new block" }` on stdin. Include the block identity and
+boundaries so both are unique. It preserves current unrelated bytes under the
+Library writer lock and fails on a missing or ambiguous old block. This is
+literal replacement, not Markdown interpretation or an ownership grant. Use
+`put` for creation; do not use a tiny repeated phrase as a block identity.
+Input is limited to 256 KiB, valid UTF-8 files to 8 MiB, and both strings must
+be nonempty and different. BUSY requires waiting for the existing writer;
+CONFLICT requires re-reading your own block, not forcing a whole-file rewrite.
+`operation --key KEY` reconciles scoped replacement after interruption: `stored`
+means the unique replacement remains present, while its reported whole-file
+hash may include newer unrelated edits. Retain normal canonical/remote proof.
+
 For lossless compression of an existing canonical file, inspect installed
 `gzip --help`, then use `gzip --path SOURCE --to DEST.gz --expected SOURCE_SHA256
 --key KEY`. This avoids transferring a large archive through broker stdin.

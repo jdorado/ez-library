@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { constants } from 'node:fs';
-import { fail, rootDir, locked, settings, validateSettings, put, operation, organize, list, safePath, digest, readRange, jsonBytes, defaults } from './store.mjs';
+import { fail, rootDir, locked, settings, validateSettings, put, operation, organize, list, safePath, digest, readRange, jsonBytes, defaults, replaceText, MAX_REPLACE_BYTES } from './store.mjs';
 import { syncPlan, syncAdopt, syncPolicy, syncRun, syncStatus } from './sync.mjs';
 import { rclone, environment } from './native.mjs';
 import { indexStatus } from './indexer.mjs';
@@ -30,6 +30,8 @@ Local library files, QMD retrieval, and persistence settings.
   settings                        Show settings and revision hash
   configure --expected HASH|new --key KEY < settings.json
   put --path RELATIVE --expected HASH|new --key KEY < file
+  replace --path RELATIVE --key KEY < replacement.json
+                                  Exact unique before/after text; preserve other bytes
   gzip --path SOURCE --to DEST.gz --expected SOURCE_HASH --key KEY
                                   Compress inside Library; retain original
   get --path RELATIVE [--raw]      Metadata/hash, or exact binary stdout
@@ -175,7 +177,7 @@ export async function main(argv = process.argv.slice(2)) {
         return (await rclone(root, rest, { inherit: true })).code;
       }); return;
     }
-    const allowed = { doctor: [], settings: [], configure: ['expected', 'key'], put: ['path', 'expected', 'key'],
+    const allowed = { doctor: [], settings: [], configure: ['expected', 'key'], put: ['path', 'expected', 'key'], replace: ['path', 'key'],
       get: ['path', 'raw', 'offset', 'length', 'expected'], 'pdf-text': ['path'], list: ['prefix', 'limit'], operation: ['key'],
       'sync-plan': ['remote'], 'sync-adopt': ['remote'], 'sync-status': [], 'sync-run': [],
       move: ['path', 'to', 'expected', 'key'], remove: ['path', 'expected', 'key'], gzip: ['path', 'to', 'expected', 'key'],
@@ -207,6 +209,17 @@ export async function main(argv = process.argv.slice(2)) {
       emit(await put(root, opts.path, process.stdin, { key: opts.key, expected: opts.expected })); return;
     }
     if (command === 'gzip') { emit(await gzipFile(root, opts)); return; }
+    if (command === 'replace') {
+      const chunks = []; let bytes = 0;
+      for await (const chunk of process.stdin) {
+        bytes += chunk.length;
+        if (bytes > MAX_REPLACE_BYTES) fail('TOO_LARGE', 'Replacement input exceeds 256 KiB');
+        chunks.push(chunk);
+      }
+      const data = Buffer.concat(chunks), text = data.toString('utf8');
+      if (!Buffer.from(text).equals(data)) fail('INVALID', 'Replacement input must be UTF-8');
+      emit(await replaceText(root, opts.path, JSON.parse(text), { key: opts.key })); return;
+    }
     if (command === 'doctor') {
       let configured = false; let value = { settings: defaults(), sha256: null };
       try { await rootDir(root); value = await settings(root); configured = value.sha256 !== null; }
