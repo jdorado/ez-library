@@ -12,6 +12,8 @@ export const fail = (code, message) => { throw new LibraryError(code, message); 
 export const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_FILE_BYTES = 512 * 1024 * 1024;
 export const MAX_READ_BYTES = 512 * 1024;
+export const MAX_REPLACE_BYTES = 256 * 1024;
+const MAX_TEXT_BYTES = 8 * 1024 * 1024;
 export const defaults = () => ({ schemaVersion: 1, storage: { mode: 'local' }, backup: { mode: 'off' } });
 
 function keys(value, allowed) {
@@ -183,6 +185,7 @@ export async function put(root, relative, input, { key, expected, kind = 'file',
 export async function operation(root, key) {
   const receiptFile = await safePath(root, path.relative(root, operationPath(root, key)));
   const receipt = JSON.parse(await fs.readFile(receiptFile, 'utf8'));
+  if (receipt.kind === 'replace') return replacementView(root, receipt);
   if (['move', 'remove'].includes(receipt.kind)) {
     const source = await current(await safePath(root, 'files/' + receipt.path));
     const target = receipt.to ? await current(await safePath(root, 'files/' + receipt.to)) : null;
@@ -192,6 +195,81 @@ export async function operation(root, key) {
   const file = await safePath(root, receipt.kind === 'settings' ? 'settings.json' : 'files/' + receipt.path);
   const now = await current(file);
   return { ...receipt, state: !now ? 'missing' : now.sha256 === receipt.sha256 ? 'stored' : 'changed' };
+}
+
+const uniquePosition = (text, part) => {
+  const at = text.indexOf(part);
+  return at >= 0 && text.indexOf(part, at + 1) < 0 ? at : -1;
+};
+function validateReplacement(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      Object.keys(value).some(key => !['before', 'after'].includes(key)) ||
+      typeof value.before !== 'string' || !value.before || typeof value.after !== 'string' ||
+      !value.after || value.before === value.after ||
+      Buffer.byteLength(JSON.stringify(value)) > MAX_REPLACE_BYTES) {
+    fail('INVALID', 'Supply distinct nonempty before/after strings in at most 256 KiB of JSON');
+  }
+  for (const text of [value.before, value.after]) {
+    if (Buffer.from(text).toString('utf8') !== text) fail('INVALID', 'Replacement must be valid UTF-8 text');
+  }
+}
+async function readText(file) {
+  const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) fail('UNSAFE_PATH', 'Expected a regular text file');
+    if (stat.size > MAX_TEXT_BYTES) fail('TOO_LARGE', 'Text replacement is limited to 8 MiB files');
+    const chunks = []; let bytes = 0;
+    for await (const chunk of handle.createReadStream({ autoClose: false })) {
+      bytes += chunk.length;
+      if (bytes > MAX_TEXT_BYTES) fail('TOO_LARGE', 'Text replacement is limited to 8 MiB files');
+      chunks.push(chunk);
+    }
+    const data = Buffer.concat(chunks), text = data.toString('utf8');
+    if (!Buffer.from(text).equals(data)) fail('INVALID', 'Text replacement requires valid UTF-8');
+    return { text, bytes, sha256: hash(data) };
+  } finally { await handle.close(); }
+}
+async function replacementView(root, receipt) {
+  validateReplacement({ before: receipt.before, after: receipt.after });
+  const file = await safePath(root, 'files/' + receipt.path);
+  const now = await readText(file).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+  return { kind: 'replace', path: receipt.path, beforeSha256: hash(receipt.before), afterSha256: hash(receipt.after),
+    state: !now ? 'missing' : uniquePosition(now.text, receipt.after) >= 0 ? 'stored' : 'changed',
+    ...(now ? { bytes: now.bytes, sha256: now.sha256 } : {}) };
+}
+
+// Exact literal replacement is a scoped compare-and-swap, not a Markdown merge.
+// The caller supplies its complete unique block. Unrelated bytes are read under
+// the existing writer lock and retained, including other callers' recent edits.
+export async function replaceText(root, relative, replacement, { key } = {}) {
+  validateReplacement(replacement);
+  if (!relative || relative === 'LIBRARY_SYNC_ACCESS') fail('INVALID', 'Supply a non-reserved file path');
+  return locked(root, async root => {
+    const target = await safePath(root, 'files/' + relative);
+    const receiptFile = await safePath(root, path.relative(root, operationPath(root, key)));
+    const request = { kind: 'replace', path: relative, before: replacement.before, after: replacement.after };
+    const old = await fs.readFile(receiptFile, 'utf8').then(JSON.parse).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+    if (old && JSON.stringify(old) !== JSON.stringify(request)) fail('KEY_REUSED', 'Operation key belongs to a different replacement');
+    if (old) {
+      const observed = await replacementView(root, old);
+      if (observed.state === 'stored') return { ...observed, replay: true };
+    }
+    const before = await readText(target);
+    const at = uniquePosition(before.text, replacement.before);
+    if (at < 0) fail('CONFLICT', 'Expected text is absent or ambiguous; re-read the owning block');
+    const next = before.text.slice(0, at) + replacement.after + before.text.slice(at + replacement.before.length);
+    if (Buffer.byteLength(next) > MAX_TEXT_BYTES) fail('TOO_LARGE', 'Replacement exceeds the 8 MiB text limit');
+    if (uniquePosition(next, replacement.after) < 0) fail('CONFLICT', 'Resulting text is ambiguous; use a larger unique block');
+    const history = await safePath(root, 'history/' + before.sha256);
+    await fs.copyFile(target, history, constants.COPYFILE_EXCL).catch(error => { if (error.code !== 'EEXIST') throw error; });
+    await fs.chmod(history, 0o600);
+    await atomic(receiptFile, jsonBytes(request));
+    await atomic(target, next);
+    const after = await replacementView(root, request);
+    if (after.state !== 'stored' || after.sha256 !== hash(next)) fail('UNCERTAIN', 'Replacement readback differs; inspect operation before retry');
+    return { ...after, replay: false };
+  });
 }
 
 export async function organize(root, { path: relative, to, expected, key }) {
