@@ -4,7 +4,7 @@ FROM node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 COPY --from=sync-engine /usr/local/bin/rclone /usr/local/bin/rclone
 WORKDIR /app
-COPY package.json pnpm-workspace.yaml ./
+COPY package.json ./
 COPY src ./src
 COPY bin ./bin
 COPY scripts/publish-settings.mjs ./scripts/publish-settings.mjs
@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
 COPY --from=sync-engine /usr/local/bin/rclone /usr/local/bin/rclone
 WORKDIR /app
-COPY package.json pnpm-workspace.yaml ./
+COPY package.json ./
 COPY docker/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY patches ./patches
 RUN pnpm install --prod --frozen-lockfile

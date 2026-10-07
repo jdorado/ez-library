@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-beta.16.rc.2
+
+- Compatibility candidate for the storage fixes: retain the exact Dockerfile
+  from `4206859c2ef592d70b500d93313a6da1435ac876` used by existing beta.16
+  shared-embedding deployments. Shared worker, lockfile, patch and descriptor
+  inputs remain unchanged; no fingerprint exemption or live worker replacement.
+- This candidate retains the existing container build behavior. The newer
+  pnpm workspace release-age/trust policy is not copied into the container;
+  rolling that build-policy change forward requires a coordinated shared-worker
+  upgrade. Host workspace policy remains unchanged. No public release implied.
+
 ## 0.1.0-beta.16.rc.1
 
 - Release candidate for guarded in-Library gzip and scoped literal text updates
