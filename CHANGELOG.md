@@ -1,23 +1,12 @@
 # Changelog
 
-## 0.1.0-beta.16.rc.2
+## 0.1.0-beta.17
 
-- Compatibility candidate for the storage fixes: retain the exact Dockerfile
-  from `4206859c2ef592d70b500d93313a6da1435ac876` used by existing beta.16
-  shared-embedding deployments. Shared worker, lockfile, patch and descriptor
-  inputs remain unchanged; no fingerprint exemption or live worker replacement.
-- This candidate retains the existing container build behavior. The newer
-  pnpm workspace release-age/trust policy is not copied into the container;
-  rolling that build-policy change forward requires a coordinated shared-worker
-  upgrade. Host workspace policy remains unchanged. No public release implied.
-
-## 0.1.0-beta.16.rc.1
-
-- Release candidate for guarded in-Library gzip and scoped literal text updates
-  from reviewed PRs #41 and #42. Preserve originals, history, operation receipts,
-  the single writer and unchanged data/deployment schemas.
-- Version metadata only beyond the reviewed combined implementation; no npm
-  publication or installed-runtime acceptance is implied by this candidate.
+- Add guarded in-Library gzip and scoped literal section/text updates, preserving originals, revision guards, operation receipts and the single writer.
+- Retain the beta.16 Dockerfile and shared embedding implementation so existing shared-worker deployments remain compatible. The container build-policy upgrade remains separate.
+- Add a representative manifest example for tool discovery; state and deployment schemas remain unchanged.
+- Requires Ez core 0.1.0-beta.50 or newer for the manifest example.
+  Older cores refuse the update and retain the installed version.
 
 ## 0.1.0-beta.16
 
