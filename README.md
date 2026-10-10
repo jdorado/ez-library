@@ -6,6 +6,9 @@ A separate Dockerized plugin for an agent's files and QMD search. Preserve origi
 
 See [existing-folder setup and sync policy](docs/folder-sync.md) and [GitHub-only two-way sync](docs/github-sync.md).
 
+Requires Ez core 0.1.0-beta.50 or newer for the manifest example.
+Older cores refuse the update and retain the installed version.
+
 ## Multiple libraries
 
 The read-only `library-file` command retrieves an original for authorized channel
