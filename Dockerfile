@@ -1,6 +1,6 @@
 FROM rclone/rclone:1.74.2@sha256:9ce0d49b611d3781233e25334e9e23d7af01e5546da7087f90d55f034ef13637 AS sync-engine
 
-FROM node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94 AS test
+FROM node:22.23.4-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS test
 RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 COPY --from=sync-engine /usr/local/bin/rclone /usr/local/bin/rclone
 WORKDIR /app
@@ -11,7 +11,7 @@ COPY scripts/publish-settings.mjs ./scripts/publish-settings.mjs
 COPY test ./test
 RUN node --test test/*.test.mjs
 
-FROM node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94 AS runtime
+FROM node:22.23.4-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates poppler-utils python3 make g++ cmake git openssh-client && rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare pnpm@10.30.3 --activate
 COPY --from=sync-engine /usr/local/bin/rclone /usr/local/bin/rclone
