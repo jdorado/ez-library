@@ -193,6 +193,13 @@ export async function gitTransfer(root, config) {
   if (!pullOnly) succeeded(await git(root, config, ['push', transport, 'HEAD:refs/heads/' + config.branch]), 'Push Library changes');
   const remote = succeeded(await git(root, config, ['ls-remote', '--exit-code', transport, 'refs/heads/' + config.branch]), 'Verify remote commit').trim().split(/\s+/)[0];
   if (remote !== commit) fail('UNCERTAIN', 'Remote advanced during verification; fetch/reconcile on the next cycle');
-  if (config.existingCheckout) succeeded(await git(root, config, ['update-ref', trackingRef, commit, previousTracking.code === 0 ? previousTracking.stdout.trim() : '0'.repeat(40)]), 'Record verified origin revision');
+  if (config.existingCheckout) {
+    // Push can also record the verified tracking value itself. Keep the guard
+    // for other changes, but do not reject a ref already at the desired commit.
+    const tracking = await git(root, config, ['rev-parse', '--verify', '--quiet', trackingRef]);
+    if (![0, 1].includes(tracking.code)) succeeded(tracking, 'Read verified origin revision');
+    if (tracking.code !== 0 || tracking.stdout.trim() !== commit)
+      succeeded(await git(root, config, ['update-ref', trackingRef, commit, previousTracking.code === 0 ? previousTracking.stdout.trim() : '0'.repeat(40)]), 'Record verified origin revision');
+  }
   return { commit, previousCommit: head, remoteVerified: true };
 }
