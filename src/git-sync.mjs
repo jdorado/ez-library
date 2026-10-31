@@ -172,10 +172,12 @@ export async function gitTransfer(root, config) {
   }
   const transport = config.existingCheckout ? repositoryURL(config.repository) : 'origin';
   const trackingRef = 'refs/remotes/origin/' + config.branch;
-  const previousTracking = config.existingCheckout ? await git(root, config, ['rev-parse', '--verify', '--quiet', trackingRef]) : null;
-  if (previousTracking && ![0, 1].includes(previousTracking.code)) succeeded(previousTracking, 'Read origin revision');
   succeeded(await git(root, config, ['fetch', '--no-tags', transport, 'refs/heads/' + config.branch]), 'Fetch remote changes');
   await tree(root, config, 'FETCH_HEAD');
+  // Native fetch may itself update origin's tracking ref, including when its
+  // URL was supplied directly. Compare-and-swap against that post-fetch value.
+  const previousTracking = config.existingCheckout ? await git(root, config, ['rev-parse', '--verify', '--quiet', trackingRef]) : null;
+  if (previousTracking && ![0, 1].includes(previousTracking.code)) succeeded(previousTracking, 'Read origin revision');
   const head = succeeded(await git(root, config, ['rev-parse', 'HEAD']), 'Read local commit').trim();
   if (pullOnly) {
     const ancestor = await git(root, config, ['merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD']);
