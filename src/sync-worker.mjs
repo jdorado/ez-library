@@ -24,7 +24,8 @@ while (!stopping) {
         const selected = await libraryRoot(root, name);
         const { config } = await syncStatus(selected);
         const mirror = (await mirrorStatus(selected)).config;
-        if (config?.mode !== 'two-way' && (config || mirror?.mode !== 'one-way')) {
+        const enabled = config?.mode === 'two-way' || (config?.backend === 'git' && config.mode === 'pull-only');
+        if (!enabled && (config || mirror?.mode !== 'one-way')) {
           due.delete(name);
           if ((await embeddingStatus()).state === 'ready') await locked(selected, refreshIndex);
           continue;

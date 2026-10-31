@@ -49,12 +49,12 @@ Local library files, QMD retrieval, and persistence settings.
   sync-adopt --remote REMOTE:PATH Import matching originals; enable two-way sync
   sync-status                    Binding, last sync, extraction and embedding status
   sync-run                       Reconcile now and refresh the index
-  sync-policy --expected HASH --mode paused|two-way [--interval 60]
+  sync-policy --expected HASH --mode paused|two-way|pull-only [--interval 60]
   git-mirror-adopt --repository OWNER/REPO [--branch main] [--extensions .md,.txt] [--exclude-directories private,archive] [--expected-remote SHA]
   git-mirror-status              Text-only GitHub history destination and revision
   git-mirror-policy --expected HASH --mode paused|one-way
   git-key --repository OWNER/REPO  Create a repository key; return public key only
-  git-adopt --repository OWNER/REPO [--branch main] Import and enable native Git sync [--existing-checkout]
+  git-adopt --repository OWNER/REPO [--branch main] [--mode two-way|pull-only] Import and enable Git sync [--existing-checkout]
   git ...                        Native Git in the bound Library working tree
 
 Local commands emit JSON (--json is also accepted); get --raw and qmd preserve
@@ -182,7 +182,7 @@ export async function main(argv = process.argv.slice(2)) {
       'sync-plan': ['remote'], 'sync-adopt': ['remote'], 'sync-status': [], 'sync-run': [],
       move: ['path', 'to', 'expected', 'key'], remove: ['path', 'expected', 'key'], gzip: ['path', 'to', 'expected', 'key'],
       'git-mirror-adopt': ['repository', 'branch', 'extensions', 'exclude-directories', 'expected-remote'], 'git-mirror-status': [], 'git-mirror-policy': ['expected', 'mode'],
-      'git-key': ['repository'], 'git-adopt': ['repository', 'branch', 'existing-checkout'],
+      'git-key': ['repository'], 'git-adopt': ['repository', 'branch', 'existing-checkout', 'mode'],
       'sync-policy': ['expected', 'mode', 'interval'] }[command];
     if (!allowed) fail('INVALID', 'Unknown command; use --help');
     const { values: opts } = parseArgs({ args: rest, options: Object.fromEntries([...allowed, 'json'].map(k => [k, { type: ['json', 'raw', 'existing-checkout'].includes(k) ? 'boolean' : 'string' }])), strict: true });
@@ -191,7 +191,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (command === 'git-mirror-status') { emit(await mirrorStatus(root)); return; }
     if (command === 'git-mirror-policy') { emit(await mirrorPolicy(root, opts.expected, opts.mode)); return; }
     if (command === 'git-key') { emit(await gitKey(root, opts.repository)); return; }
-    if (command === 'git-adopt') { emit(await gitAdopt(root, opts.repository, opts.branch, base, opts['existing-checkout'])); return; }
+    if (command === 'git-adopt') { emit(await gitAdopt(root, opts.repository, opts.branch, base, opts['existing-checkout'], opts.mode)); return; }
     if (command === 'sync-adopt') { emit(await syncAdopt(root, opts.remote, base)); return; }
     if (command === 'sync-status') { emit(await syncStatus(root)); return; }
     if (command === 'sync-run') { emit(await syncRun(root, base)); return; }

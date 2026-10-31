@@ -1,11 +1,19 @@
 # GitHub-only working Library
 
-Native Git handles fetch, merge, commit and push. The same resident Library
+Native Git handles fetch, merge, commit and push in the default two-way mode. Pull-only mode fetches and fast-forwards without committing or pushing. The same resident Library
 supervisor refreshes PDF extraction, QMD search and embeddings after each
 successful cycle. The default interval is 60 seconds after the previous cycle
 finishes; use `sync-policy` to change it or pause. Local commits survive network
 failures. A push is verified by reading the remote branch commit, and concurrent
 remote advancement is reported as uncertain for reconciliation next cycle.
+
+## Pull-only repositories
+
+Use a read-only GitHub deploy key and `git-adopt --repository OWNER/REPO --branch main --mode pull-only` when another workspace owns the source. The existing supervisor fetches and fast-forwards, then refreshes extraction and QMD indexing. It never stages, commits or pushes in this mode, even with a write-capable key.
+
+For an existing Git binding, read `sync-status` and use `sync-policy --expected REVISION --mode pull-only`. `paused` stops synchronization; `two-way` keeps the original bidirectional behavior. Pull-only is available only for Git bindings, including mounted existing checkouts.
+
+Local edits, staged work, untracked files, local commits or rewritten/divergent remote history stop the cycle with a conflict and preserve the working tree. Ignored local files remain local; an incoming tracked file cannot overwrite one. Extra local originals prevent pull-only adoption. Reconcile through native Git before resuming; no hard reset or automatic conflict winner is supplied. A successful receipt verifies the remote branch commit. Network and authentication failures remain errors.
 
 On a constrained host, set the Library service environment `EZ_LIBRARY_EMBED=0`
 to keep automatic Git transfer, extraction and full-text indexing without running
@@ -24,7 +32,7 @@ policy, even when original files have not changed.
    `/state/sync/keys` and returns only the public key. GitHub SSH host keys come
    from its public HTTPS metadata endpoint and strict SSH checking stays enabled.
 3. Use the existing GitHub plugin's native `gh api` to list repository deploy
-   keys, reconcile any matching public key, and register it with write access
+   keys, reconcile any matching public key, and register it with write access for two-way sync or read-only access for pull-only sync
    if missing. The endpoint is `repos/OWNER/REPO/keys`; submit JSON on stdin using
    `ez github gh api ... --method POST --input -`:
 
@@ -32,7 +40,7 @@ policy, even when original files have not changed.
    {"title":"Ez Library","key":"PUBLIC_KEY_FROM_GIT_KEY","read_only":false}
    ```
 
-   Read back the matching key and its write setting after registration. If a
+   For pull-only sync set `read_only` to `true`. Read back the matching key and its permission after registration. If a
    registration response is uncertain, inspect the key list before retrying.
    Only the public key crosses plugins. OAuth tokens remain in GitHub's profile;
    the private SSH key remains in Library. No GCP project or new user login is
@@ -43,7 +51,7 @@ policy, even when original files have not changed.
 5. `ez library git-adopt --repository OWNER/REPO --branch main` imports the
    branch and enables sync. Existing local files with matching paths must have
    identical bytes; conflicts stop adoption. Extra local files become pending
-   additions, so select GitHub-only only when their upload is intended.
+   additions in two-way mode, so select that mode only when their upload is intended. Pull-only adoption refuses extra local originals.
 6. Run `sync-run`, check `sync-status`, query actual content, and verify the
    remote commit/files through the GitHub plugin before saying sync is live.
 

@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { gitAdopt, gitTransfer, git, repositoryURL } from '../src/git-sync.mjs';
 import { locked, put, digest, organize, jsonBytes } from '../src/store.mjs';
+import { syncPolicy, syncStatus } from '../src/sync.mjs';
 
 async function setup(t) {
   const base = await fs.realpath(await fs.mkdtemp(path.join(tmpdir(), 'library-git-')));
@@ -24,6 +25,87 @@ async function setup(t) {
   return { base, root, remote, external, outside, publish };
 }
 const cycle = (root, config) => locked(root, () => gitTransfer(root, config));
+
+test('pull-only imports additions, renames and deletions without a push or local commit', async t => {
+  const { root, remote, external, outside, publish } = await setup(t);
+  const { config } = await gitAdopt(root, remote, 'main', root, false, 'pull-only');
+  // Any push, even one with no changed refs, would fail against this URL.
+  await git(root, config, ['remote', 'set-url', '--push', 'origin', remote + '-forbidden']);
+  await fs.writeFile(path.join(external, 'incoming.md'), 'Remote-only violet telescope');
+  await fs.rename(path.join(external, 'note0.md'), path.join(external, 'renamed.md'));
+  await fs.unlink(path.join(external, 'note1.md')); publish();
+  const expected = outside(['--git-dir', remote, 'rev-parse', 'main']).trim();
+  const result = await cycle(root, config);
+  assert.equal(result.commit, expected);
+  assert.equal(result.remoteVerified, true);
+  assert.match(await fs.readFile(path.join(root, 'files/incoming.md'), 'utf8'), /violet/);
+  assert.match(await fs.readFile(path.join(root, 'files/renamed.md'), 'utf8'), /Note 0/);
+  await assert.rejects(fs.stat(path.join(root, 'files/note1.md')), { code: 'ENOENT' });
+  assert.equal((await cycle(root, config)).commit, expected);
+  assert.equal(outside(['--git-dir', remote, 'rev-parse', 'main']).trim(), expected);
+});
+
+test('pull-only preserves local edits, staged work and untracked files without committing them', async t => {
+  for (const kind of ['edited', 'staged', 'untracked']) {
+    const { root, remote, outside } = await setup(t);
+    const { config } = await gitAdopt(root, remote, 'main', root, false, 'pull-only');
+    const original = outside(['--git-dir', remote, 'rev-parse', 'main']).trim();
+    const name = kind === 'untracked' ? 'local.md' : 'note0.md';
+    await fs.writeFile(path.join(root, 'files', name), 'Preserve local ' + kind);
+    if (kind === 'staged') await git(root, config, ['add', '--', name]);
+    await assert.rejects(cycle(root, config), { code: 'CONFLICT' });
+    assert.equal(await fs.readFile(path.join(root, 'files', name), 'utf8'), 'Preserve local ' + kind);
+    assert.equal((await git(root, config, ['rev-parse', 'HEAD'])).stdout.trim(), original);
+    assert.equal(outside(['--git-dir', remote, 'rev-parse', 'main']).trim(), original);
+    if (kind === 'staged') assert.match((await git(root, config, ['show', ':' + name])).stdout, /Preserve local staged/);
+  }
+});
+
+test('pull-only rejects ahead and divergent local history without resetting or merging', async t => {
+  for (const diverged of [false, true]) {
+    const { root, remote, external, outside, publish } = await setup(t);
+    const { config } = await gitAdopt(root, remote, 'main', root, false, 'pull-only');
+    await fs.writeFile(path.join(root, 'files/local.md'), 'Preserve local commit');
+    await git(root, config, ['add', '--', 'local.md']);
+    await git(root, config, ['commit', '-m', 'Local work']);
+    const head = (await git(root, config, ['rev-parse', 'HEAD'])).stdout.trim();
+    if (diverged) { await fs.writeFile(path.join(external, 'remote.md'), 'External work'); publish(); }
+    const remoteHead = outside(['--git-dir', remote, 'rev-parse', 'main']).trim();
+    await assert.rejects(cycle(root, config), { code: 'CONFLICT' });
+    assert.equal((await git(root, config, ['rev-parse', 'HEAD'])).stdout.trim(), head);
+    assert.equal(outside(['--git-dir', remote, 'rev-parse', 'main']).trim(), remoteHead);
+    assert.equal((await git(root, config, ['rev-parse', '--verify', 'MERGE_HEAD'])).code, 128);
+  }
+});
+
+test('an existing two-way Git binding can switch to revision-guarded pull-only sync', async t => {
+  const { root, remote } = await setup(t);
+  await gitAdopt(root, remote);
+  const before = await syncStatus(root);
+  const after = await syncPolicy(root, { expected: before.revision, mode: 'pull-only', intervalSeconds: 30 });
+  assert.equal(after.config.mode, 'pull-only');
+  await cycle(root, after.config);
+  await assert.rejects(syncPolicy(root, { expected: before.revision, mode: 'two-way' }), { code: 'CONFLICT' });
+});
+
+test('pull-only adoption preserves and refuses extra local originals', async t => {
+  const { root, remote } = await setup(t);
+  await put(root, 'local.md', Readable.from(['Keep this original']), { expected: 'new', key: 'local' });
+  await assert.rejects(gitAdopt(root, remote, 'main', root, false, 'pull-only'), { code: 'CONFLICT' });
+  assert.equal(await fs.readFile(path.join(root, 'files/local.md'), 'utf8'), 'Keep this original');
+  assert.equal((await syncStatus(root)).config.mode, 'paused');
+});
+
+test('pull-only advances an explicitly adopted existing checkout without creating commits', async t => {
+  const { root, remote, external, outside, publish } = await setup(t);
+  await fs.mkdir(root); outside(['clone', remote, path.join(root, 'files')]);
+  const { config } = await gitAdopt(root, remote, 'main', root, true, 'pull-only');
+  await fs.writeFile(path.join(external, 'incoming.md'), 'External checkout update'); publish();
+  const expected = outside(['--git-dir', remote, 'rev-parse', 'main']).trim();
+  assert.equal((await cycle(root, config)).commit, expected);
+  assert.equal(outside(['-C', path.join(root, 'files'), 'rev-parse', 'HEAD']).trim(), expected);
+  assert.equal(outside(['-C', path.join(root, 'files'), 'rev-parse', 'origin/main']).trim(), expected);
+});
 
 test('native Git adopts originals, imports external changes, exports agent changes and verifies commit', async t => {
   const { root, remote, external, outside, publish } = await setup(t);

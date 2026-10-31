@@ -78,6 +78,18 @@ test('sync is inert without binding; policy revisions and remote paths are guard
   assert.equal(environment(root).RCLONE_CONFIG, path.join(root, 'sync/rclone.conf'));
 });
 
+test('pull-only cannot enable two-way transfers on a non-Git folder binding', async t => {
+  const { root, remote } = await fixture(t);
+  await fs.mkdir(path.join(root, 'sync'), { recursive: true });
+  await fs.writeFile(path.join(root, 'sync/config.json'), JSON.stringify({ schemaVersion: 1, remote, mode: 'two-way', intervalSeconds: 60 }));
+  const before = await syncStatus(root);
+  await assert.rejects(syncPolicy(root, { expected: before.revision, mode: 'pull-only' }), { code: 'INVALID' });
+  assert.equal((await syncStatus(root)).config.mode, 'two-way');
+  await fs.writeFile(path.join(root, 'sync/config.json'), JSON.stringify({ ...before.config, mode: 'pull-only' }));
+  await assert.rejects(syncRun(root), { code: 'INVALID' });
+  assert.equal((await syncStatus(root)).status.state, 'sync-error');
+});
+
 test('native adoption preserves a populated folder, empty files and directories; conflicts stop adoption', { skip: !nativeAvailable }, async t => {
   const { root, remote } = await fixture(t);
   await fs.mkdir(path.join(remote, 'empty-dir'));
