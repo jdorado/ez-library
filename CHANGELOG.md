@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-beta.18.rc.4
+
+- Add explicit pull-only Git sync for read-only repository keys: fetch, verify and fast-forward, followed by the existing indexing path, without staging, committing or pushing.
+- Preserve and refuse local changes and non-fast-forward history. Existing Git bindings can switch with revision-guarded sync policy; two-way sync is unchanged.
+- Reconcile existing checkout tracking refs with native Git's fetch/push updates, retaining the revision guard for unexpected changes.
+
 ## 0.1.0-beta.17
 
 - Add guarded in-Library gzip and scoped literal section/text updates, preserving originals, revision guards, operation receipts and the single writer.

@@ -132,10 +132,11 @@ export async function syncAdopt(root, remote, stateRoot = root) {
 }
 
 export async function syncPolicy(root, { expected, mode, intervalSeconds = 60 }) {
-  if (!['paused', 'two-way'].includes(mode) || !Number.isInteger(intervalSeconds) || intervalSeconds < 30 || intervalSeconds > 3600) fail('INVALID', 'Use paused or two-way, and an interval from 30 to 3600 seconds');
+  if (!['paused', 'two-way', 'pull-only'].includes(mode) || !Number.isInteger(intervalSeconds) || intervalSeconds < 30 || intervalSeconds > 3600) fail('INVALID', 'Use paused, two-way or pull-only, and an interval from 30 to 3600 seconds');
   return locked(root, async root => {
     const current = await syncStatus(root);
     if (!current.config || current.revision !== expected) fail('CONFLICT', 'Read the current sync revision before changing policy');
+    if (mode === 'pull-only' && current.config.backend !== 'git') fail('INVALID', 'Pull-only sync requires a Git library');
     await atomic(location(root), jsonBytes({ ...current.config, mode, intervalSeconds }));
     return syncStatus(root);
   });
@@ -153,6 +154,7 @@ export async function syncRun(root, stateRoot = root) {
     try {
       if (config?.backend === 'git') status.git = await gitTransfer(root, config);
       else if (config) {
+        if (config.mode !== 'two-way') fail('INVALID', 'Folder sync requires two-way mode');
         if (await remoteIdentity(root, config.remote, stateRoot) !== config.identity) fail('CONFLICT', 'Mapped folder disappeared or changed identity; no automatic recreation');
         succeeded(await rclone(root, bisyncArgs(root, config)), 'Native bisync');
       }

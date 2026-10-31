@@ -28,7 +28,7 @@ export async function gitKey(root, repository) {
     const { ssh_keys: keys } = await response.json();
     if (!Array.isArray(keys) || !keys.length || keys.some(k => !/^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp256) [A-Za-z0-9+/=]+$/.test(k))) fail('UNAVAILABLE', 'Unexpected GitHub host-key response');
     await atomic(path.join(dir, 'known_hosts'), keys.map(k => 'github.com ' + k).join('\n') + '\n');
-    return { repository, publicKey: (await fs.readFile(key + '.pub', 'utf8')).trim(), registration: 'Register this public key with write access through the connected GitHub plugin. Private key stays in Library.' };
+    return { repository, publicKey: (await fs.readFile(key + '.pub', 'utf8')).trim(), registration: 'Register this public key through the connected GitHub plugin: read-only for pull-only sync, write access for two-way sync. Private key stays in Library.' };
   });
 }
 
@@ -85,7 +85,13 @@ async function existingCheckout(root, config) {
   return origin;
 }
 
-export async function gitAdopt(root, repository, branch = 'main', stateRoot = root, reuseCheckout = false) {
+async function cleanPullTree(root, config) {
+  const changes = succeeded(await git(root, config, ['status', '--porcelain=v1', '--untracked-files=all']), 'Inspect pull-only working tree');
+  if (changes) fail('CONFLICT', 'Pull-only library has local changes; preserve and reconcile them before syncing');
+}
+
+export async function gitAdopt(root, repository, branch = 'main', stateRoot = root, reuseCheckout = false, mode = 'two-way') {
+  if (!['two-way', 'pull-only'].includes(mode)) fail('INVALID', 'Use two-way or pull-only Git sync');
   const remote = repositoryURL(repository);
   return locked(root, async root => {
     await checkPolicy(root, repository, branch);
@@ -105,7 +111,8 @@ export async function gitAdopt(root, repository, branch = 'main', stateRoot = ro
       // No checkout, reset, commit or push during adoption. Native history and
       // eligible unstaged edits remain owned by the existing checkout.
       succeeded(await git(root, config, ['merge-base', 'HEAD', 'FETCH_HEAD']), 'Verify shared history');
-      config.mode = 'two-way';
+      if (mode === 'pull-only') await cleanPullTree(root, config);
+      config.mode = mode;
       await atomic(binding, jsonBytes(config));
       return { config, imported: 0, indexing: 'pending' };
     }
@@ -134,45 +141,65 @@ export async function gitAdopt(root, repository, branch = 'main', stateRoot = ro
     succeeded(await git(root, config, ['reset', '--mixed', 'FETCH_HEAD']), 'Initialize native index');
     const missing = entries.filter(e => !existing.has(e.path)).map(e => e.path + '\0').join('');
     if (missing) succeeded(await git(root, config, ['checkout-index', '-z', '--stdin'], { input: missing }), 'Import tracked files');
-    config.mode = 'two-way';
+    if (mode === 'pull-only') await cleanPullTree(root, config);
+    config.mode = mode;
     await atomic(binding, jsonBytes(config));
     return { config, imported: entries.length, indexing: 'pending' };
   });
 }
 
 export async function gitTransfer(root, config) {
+  if (!['two-way', 'pull-only'].includes(config.mode)) fail('INVALID', 'Use two-way or pull-only Git sync');
+  const pullOnly = config.mode === 'pull-only';
   await checkPolicy(root, config.repository, config.branch);
   if (config.existingCheckout) await existingCheckout(root, config);
   const actualRemote = succeeded(await git(root, config, ['remote', 'get-url', 'origin']), 'Check bound remote').trim();
   if (actualRemote !== (config.checkoutOrigin || repositoryURL(config.repository))) fail('CONFLICT', 'Git remote no longer matches the Library binding');
   const conflict = succeeded(await git(root, config, ['ls-files', '--unmerged']), 'Inspect merge state');
   if (conflict) fail('CONFLICT', 'Git merge unresolved; use native git status/show/add to resolve both retained versions before syncing');
-  const files = config.existingCheckout ? await gitInventory(root) : await inventory(path.join(root, 'files'), '', { includeHidden: true });
-  const ignored = new Set(succeeded(await git(root, config, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z']), 'Inspect ignored files').split('\0').filter(Boolean));
-  if (files.some(f => !ignored.has(f.path) && f.bytes >= 100 * 1024 * 1024)) fail('TOO_LARGE', 'GitHub ordinary files must be below 100 MiB; select another storage mode for larger media');
-  succeeded(await git(root, config, ['add', '--all', '--', '.']), 'Stage Library changes');
-  const stagedTree = succeeded(await git(root, config, ['write-tree']), 'Read staged tree').trim();
-  await tree(root, config, stagedTree);
-  const diff = await git(root, config, ['diff', '--cached', '--quiet']);
-  if (![0, 1].includes(diff.code)) succeeded(diff, 'Inspect staged changes');
-  const merging = await git(root, config, ['rev-parse', '--verify', 'MERGE_HEAD']);
-  if (diff.code === 1 || merging.code === 0) succeeded(await git(root, config, ['commit', '--no-gpg-sign', '-m', 'Sync Library changes']), 'Commit Library changes');
+  if (pullOnly) await cleanPullTree(root, config);
+  else {
+    const files = config.existingCheckout ? await gitInventory(root) : await inventory(path.join(root, 'files'), '', { includeHidden: true });
+    const ignored = new Set(succeeded(await git(root, config, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z']), 'Inspect ignored files').split('\0').filter(Boolean));
+    if (files.some(f => !ignored.has(f.path) && f.bytes >= 100 * 1024 * 1024)) fail('TOO_LARGE', 'GitHub ordinary files must be below 100 MiB; select another storage mode for larger media');
+    succeeded(await git(root, config, ['add', '--all', '--', '.']), 'Stage Library changes');
+    const stagedTree = succeeded(await git(root, config, ['write-tree']), 'Read staged tree').trim();
+    await tree(root, config, stagedTree);
+    const diff = await git(root, config, ['diff', '--cached', '--quiet']);
+    if (![0, 1].includes(diff.code)) succeeded(diff, 'Inspect staged changes');
+    const merging = await git(root, config, ['rev-parse', '--verify', 'MERGE_HEAD']);
+    if (diff.code === 1 || merging.code === 0) succeeded(await git(root, config, ['commit', '--no-gpg-sign', '-m', 'Sync Library changes']), 'Commit Library changes');
+  }
   const transport = config.existingCheckout ? repositoryURL(config.repository) : 'origin';
   const trackingRef = 'refs/remotes/origin/' + config.branch;
-  const previousTracking = config.existingCheckout ? await git(root, config, ['rev-parse', '--verify', '--quiet', trackingRef]) : null;
-  if (previousTracking && ![0, 1].includes(previousTracking.code)) succeeded(previousTracking, 'Read origin revision');
   succeeded(await git(root, config, ['fetch', '--no-tags', transport, 'refs/heads/' + config.branch]), 'Fetch remote changes');
   await tree(root, config, 'FETCH_HEAD');
+  // Native fetch may itself update origin's tracking ref, including when its
+  // URL was supplied directly. Compare-and-swap against that post-fetch value.
+  const previousTracking = config.existingCheckout ? await git(root, config, ['rev-parse', '--verify', '--quiet', trackingRef]) : null;
+  if (previousTracking && ![0, 1].includes(previousTracking.code)) succeeded(previousTracking, 'Read origin revision');
   const head = succeeded(await git(root, config, ['rev-parse', 'HEAD']), 'Read local commit').trim();
-  const merge = await git(root, config, ['merge', '--no-overwrite-ignore', '--no-edit', '--no-gpg-sign', 'FETCH_HEAD']);
+  if (pullOnly) {
+    const ancestor = await git(root, config, ['merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD']);
+    if (ancestor.code === 1) fail('CONFLICT', 'Pull-only library has local commits or rewritten remote history; reconcile before syncing');
+    succeeded(ancestor, 'Check pull-only fast-forward');
+  }
+  const merge = await git(root, config, ['merge', '--no-overwrite-ignore', ...(pullOnly ? ['--ff-only'] : ['--no-edit', '--no-gpg-sign']), 'FETCH_HEAD']);
   if (merge.code !== 0) {
     if (succeeded(await git(root, config, ['ls-files', '--unmerged']), 'Inspect conflicts')) fail('CONFLICT', 'Both revisions retained in Git merge stages. Resolve the merge before sync/indexing resumes');
     succeeded(merge, 'Merge remote changes');
   }
   const commit = succeeded(await git(root, config, ['rev-parse', 'HEAD']), 'Read synchronized commit').trim();
-  succeeded(await git(root, config, ['push', transport, 'HEAD:refs/heads/' + config.branch]), 'Push Library changes');
+  if (!pullOnly) succeeded(await git(root, config, ['push', transport, 'HEAD:refs/heads/' + config.branch]), 'Push Library changes');
   const remote = succeeded(await git(root, config, ['ls-remote', '--exit-code', transport, 'refs/heads/' + config.branch]), 'Verify remote commit').trim().split(/\s+/)[0];
   if (remote !== commit) fail('UNCERTAIN', 'Remote advanced during verification; fetch/reconcile on the next cycle');
-  if (config.existingCheckout) succeeded(await git(root, config, ['update-ref', trackingRef, commit, previousTracking.code === 0 ? previousTracking.stdout.trim() : '0'.repeat(40)]), 'Record verified origin revision');
+  if (config.existingCheckout) {
+    // Push can also record the verified tracking value itself. Keep the guard
+    // for other changes, but do not reject a ref already at the desired commit.
+    const tracking = await git(root, config, ['rev-parse', '--verify', '--quiet', trackingRef]);
+    if (![0, 1].includes(tracking.code)) succeeded(tracking, 'Read verified origin revision');
+    if (tracking.code !== 0 || tracking.stdout.trim() !== commit)
+      succeeded(await git(root, config, ['update-ref', trackingRef, commit, previousTracking.code === 0 ? previousTracking.stdout.trim() : '0'.repeat(40)]), 'Record verified origin revision');
+  }
   return { commit, previousCommit: head, remoteVerified: true };
 }
