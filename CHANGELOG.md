@@ -1,10 +1,12 @@
 # Changelog
 
-## 0.1.0-beta.18.rc.4
+## 0.1.0-beta.18
 
+- Reuse unchanged file digests in the resident sync worker: inventory scans skip rereading files whose device, inode, size, mtime and ctime are unchanged, and the text mirror rewrites only changed files and skips fetch, push and verification when the remote head already matches. Idle sync cycles no longer hash every original twice per minute.
 - Add explicit pull-only Git sync for read-only repository keys: fetch, verify and fast-forward, followed by the existing indexing path, without staging, committing or pushing.
 - Preserve and refuse local changes and non-fast-forward history. Existing Git bindings can switch with revision-guarded sync policy; two-way sync is unchanged.
 - Reconcile existing checkout tracking refs with native Git's fetch/push updates, retaining the revision guard for unexpected changes.
+- Includes the beta.17 scope below, which was never published to npm.
 
 ## 0.1.0-beta.17
 
