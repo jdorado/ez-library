@@ -135,17 +135,22 @@ export async function mirrorTransfer(root) {
   if (remote) {
     if (config.lastCommit && remote !== config.lastCommit && remote !== local.stdout.trim()) fail('CONFLICT', 'Mirror branch was changed externally');
     if (local.code !== 0) fail('CONFLICT', 'Mirror remote changed before first commit');
-    succeeded(await run(['fetch', '--no-tags', 'origin', 'refs/heads/' + config.branch]), 'Fetch mirror head');
-    if ((await run(['merge-base', '--is-ancestor', 'FETCH_HEAD', 'HEAD'])).code !== 0) fail('CONFLICT', 'GitHub mirror was edited externally; preserve and reconcile it before resuming');
+    if (remote !== local.stdout.trim()) {
+      succeeded(await run(['fetch', '--no-tags', 'origin', 'refs/heads/' + config.branch]), 'Fetch mirror head');
+      if ((await run(['merge-base', '--is-ancestor', 'FETCH_HEAD', 'HEAD'])).code !== 0) fail('CONFLICT', 'GitHub mirror was edited externally; preserve and reconcile it before resuming');
+    }
   } else if (config.lastCommit) fail('CONFLICT', 'Mirror branch disappeared; no automatic recreation');
   if (selected.some(x => x.bytes >= 100 * 1024 * 1024)) fail('TOO_LARGE', 'Text mirror file exceeds GitHub ordinary-file limit');
   const target = path.join(root, 'sync/text-mirror/files');
-  const selectedPaths = new Set(selected.map(x => x.destination));
+  const selectedPaths = new Set(selected.map(x => x.destination)), projected = new Map();
   for (const old of await inventory(target)) {
     if (!selectedPaths.has(old.path.normalize('NFC'))) await fs.unlink(await safePath(root, 'sync/text-mirror/files/' + old.path));
+    else projected.set(old.path, old.sha256);
   }
   await pruneEmptyDirectories(target);
+  // Rewrite only changed bytes so Git's stat cache stays valid for unchanged notes.
   for (const item of selected) {
+    if (projected.get(item.destination) === item.sha256) continue;
     const destination = await safePath(root, 'sync/text-mirror/files/' + item.destination, true);
     await fs.copyFile(await safePath(root, 'files/' + item.path), destination);
   }
@@ -156,9 +161,12 @@ export async function mirrorTransfer(root) {
   if (![0, 1].includes(diff.code)) succeeded(diff, 'Inspect mirror changes');
   if (diff.code === 1 || local.code !== 0) succeeded(await run(['commit', '--allow-empty', '--no-gpg-sign', '-m', 'Version Library text changes']), 'Commit text mirror');
   const commit = succeeded(await run(['rev-parse', 'HEAD']), 'Read mirror commit').trim();
-  succeeded(await run(['push', 'origin', 'HEAD:refs/heads/' + config.branch]), 'Push text mirror');
-  const verified = succeeded(await run(['ls-remote', 'origin', 'refs/heads/' + config.branch]), 'Verify text mirror').trim().split(/\s+/)[0];
-  if (verified !== commit) fail('UNCERTAIN', 'Mirror advanced during verification');
-  await atomic(file(root), jsonBytes({ ...config, lastCommit: commit }));
+  // The remote head read above already proves an unchanged projection.
+  if (remote !== commit) {
+    succeeded(await run(['push', 'origin', 'HEAD:refs/heads/' + config.branch]), 'Push text mirror');
+    const verified = succeeded(await run(['ls-remote', 'origin', 'refs/heads/' + config.branch]), 'Verify text mirror').trim().split(/\s+/)[0];
+    if (verified !== commit) fail('UNCERTAIN', 'Mirror advanced during verification');
+  }
+  if (config.lastCommit !== commit) await atomic(file(root), jsonBytes({ ...config, lastCommit: commit }));
   return { state: 'mirrored', repository: config.repository, branch: config.branch, commit, files: selected.length, remoteVerified: true };
 }
