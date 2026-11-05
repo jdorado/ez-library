@@ -38,6 +38,21 @@ test('text mirror versions notes and renames while excluding attachment bytes an
   await mirrorPolicy(root, current.revision, 'paused');
   assert.equal((await cycle()).state, 'paused');
 });
+test('unchanged mirror cycles keep projection files and remote head untouched', async t => {
+  const { root, remote, git, cycle } = await fixture(t);
+  await put(root, 'note.md', Readable.from(['original']), { expected: 'new', key: 'note' });
+  await mirrorAdopt(root, remote);
+  const first = await cycle(), projected = path.join(root, 'sync/text-mirror/files/note.md');
+  const before = await fs.stat(projected);
+  assert.equal((await cycle()).commit, first.commit);
+  const after = await fs.stat(projected);
+  assert.deepEqual([after.ino, after.mtimeMs], [before.ino, before.mtimeMs]);
+  assert.equal(git(['--git-dir', remote, 'rev-parse', 'main']).trim(), first.commit);
+  await fs.writeFile(path.join(root, 'files/note.md'), 'edited');
+  const second = await cycle();
+  assert.notEqual(second.commit, first.commit);
+  assert.equal(git(['--git-dir', remote, 'show', 'main:note.md']), 'edited');
+});
 test('outside GitHub edits stop mirroring without changing Drive originals or dropping remote history', async t => {
   const { root, remote, base, git, cycle } = await fixture(t);
   await put(root, 'note.md', Readable.from(['original']), { expected: 'new', key: 'note' });

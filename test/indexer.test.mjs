@@ -71,3 +71,19 @@ test('per-library indexing policy controls native QMD embedding with explicit sh
     } finally { await fs.rm(base, { recursive: true, force: true }); }
   `], { cwd: new URL('..', import.meta.url), stdio: 'pipe' });
 });
+
+test('scan digests are reused per process but never hide same-size rewrites with a restored mtime', async t => {
+  const fs = await import('node:fs/promises'), path = (await import('node:path')).default, { tmpdir } = await import('node:os');
+  const { setTimeout } = await import('node:timers/promises'), assert = (await import('node:assert/strict')).default;
+  const { scanDigest, hash } = await import('../src/store.mjs');
+  const base = await fs.realpath(await fs.mkdtemp(path.join(tmpdir(), 'library-scan-')));
+  t.after(() => fs.rm(base, { recursive: true, force: true }));
+  const file = path.join(base, 'note.md');
+  await fs.writeFile(file, 'first');
+  const { mtime } = await fs.stat(file);
+  await setTimeout(2100);
+  assert.deepEqual(await scanDigest(file), { bytes: 5, sha256: hash('first') });
+  assert.deepEqual(await scanDigest(file), { bytes: 5, sha256: hash('first') });
+  await fs.writeFile(file, 'other'); await fs.utimes(file, mtime, mtime);
+  assert.deepEqual(await scanDigest(file), { bytes: 5, sha256: hash('other') });
+});

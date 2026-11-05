@@ -90,16 +90,37 @@ export async function locked(root, fn) {
   try { return await fn(await initialize(root)); }
   finally { await fs.rmdir(lock); }
 }
-export async function digest(file) {
+async function opened(file, read) {
   const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
-    const st = await handle.stat();
+    const st = await handle.stat({ bigint: true });
     if (!st.isFile()) fail('UNSAFE_PATH', 'Expected a regular file');
-    const sha = createHash('sha256'); let bytes = 0;
-    for await (const chunk of handle.createReadStream({ autoClose: false })) { sha.update(chunk); bytes += chunk.length; }
-    return { bytes, sha256: sha.digest('hex') };
+    return await read(handle, st);
   } finally { await handle.close(); }
 }
+async function contentDigest(handle) {
+  const sha = createHash('sha256'); let bytes = 0;
+  for await (const chunk of handle.createReadStream({ autoClose: false })) { sha.update(chunk); bytes += chunk.length; }
+  return { bytes, sha256: sha.digest('hex') };
+}
+export const digest = file => opened(file, contentDigest);
+
+// The resident worker inventories unchanged originals every cycle. Within one
+// process, reuse a digest only while device, inode, size, mtime and ctime are
+// identical, and never for files changed within the last two seconds.
+const scanned = new Map();
+export const scanDigest = file => opened(file, async (handle, st) => {
+  const key = `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}:${st.ctimeNs}`;
+  const known = scanned.get(file);
+  if (known?.key === key) return { ...known.value };
+  const value = await contentDigest(handle);
+  const changed = st.mtimeNs > st.ctimeNs ? st.mtimeNs : st.ctimeNs;
+  if (BigInt(Date.now()) * 1000000n - changed > 2000000000n) {
+    if (scanned.size >= 100000) scanned.clear();
+    scanned.set(file, { key, value });
+  }
+  return { ...value };
+});
 export async function readRange(file, { offset, length, expected }) {
   if (!/^(0|[1-9][0-9]*)$/.test(offset ?? '') || !/^[1-9][0-9]*$/.test(length ?? '') ||
       !Number.isSafeInteger(Number(offset)) || !Number.isSafeInteger(Number(length)) ||

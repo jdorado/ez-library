@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
-import { atomic, digest, hash, jsonBytes, safePath, settings } from './store.mjs';
+import { atomic, hash, jsonBytes, safePath, scanDigest, settings } from './store.mjs';
 import { native, qmd, succeeded } from './native.mjs';
 
 export async function inventory(directory, relative = '', { includeHidden = false } = {}) {
@@ -9,7 +9,7 @@ export async function inventory(directory, relative = '', { includeHidden = fals
     if (!includeHidden && item.name.startsWith('.')) continue;
     const name = relative + item.name, file = path.join(directory, item.name);
     if (item.isDirectory()) result.push(...await inventory(file, name + '/', { includeHidden }));
-    else if (item.isFile()) result.push({ path: name, ...(await digest(file)) });
+    else if (item.isFile()) result.push({ path: name, ...(await scanDigest(file)) });
     else throw Error('Unsupported symlink or special file in Library');
   }
   return result;
@@ -33,7 +33,7 @@ export async function gitInventory(root) {
       if (!stat) { absent = true; break; }
       if (stat.isSymbolicLink() || !(i === parts.length - 1 ? stat.isFile() : stat.isDirectory())) throw Error('Unsupported symlink or special file in Library');
     }
-    if (!absent) files.push({ path: name, ...(await digest(file)) });
+    if (!absent) files.push({ path: name, ...(await scanDigest(file)) });
   }
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
