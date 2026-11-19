@@ -5,7 +5,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { spawnSync } from 'node:child_process';
-import { put, operation, settings, defaults, validateSettings, list, digest, readRange, MAX_READ_BYTES, hash } from '../src/store.mjs';
+import { locked, put, operation, settings, defaults, validateSettings, list, digest, readRange, MAX_READ_BYTES, hash } from '../src/store.mjs';
 import { qmdEnvironment } from '../src/cli.mjs';
 
 const cli = new URL('../bin/ez-library.mjs', import.meta.url).pathname;
@@ -142,6 +142,27 @@ test('writer lock is fail-closed, including stale-looking locks', async t => {
   const root = await fixture(t); await fs.mkdir(path.join(root, '.writer-lock'));
   await assert.rejects(save(root, 'blocked'), code('BUSY'));
   assert((await fs.stat(path.join(root, '.writer-lock'))).isDirectory());
+});
+
+test('a live writer is waited for instead of failing BUSY', async t => {
+  const root = await fixture(t); const lock = path.join(root, '.writer-lock');
+  await fs.mkdir(lock);
+  await fs.writeFile(path.join(lock, 'owner'), JSON.stringify({ pid: process.pid + 1, host: 'other', at: new Date().toISOString() }));
+  const release = new Promise(resolve => setTimeout(async () => {
+    await fs.rm(path.join(lock, 'owner')); await fs.rmdir(lock); resolve();
+  }, 600));
+  await save(root, 'after wait');
+  await release;
+  await assert.rejects(fs.stat(lock), code('ENOENT'));
+});
+
+test('an aborted wait gives up without taking the lock', async t => {
+  const root = await fixture(t); const lock = path.join(root, '.writer-lock');
+  await fs.mkdir(lock);
+  await fs.writeFile(path.join(lock, 'owner'), JSON.stringify({ pid: process.pid + 1, host: 'other', at: new Date().toISOString() }));
+  const controller = new AbortController(); setTimeout(() => controller.abort(), 300);
+  await assert.rejects(locked(root, () => assert.fail('must not run'), { signal: controller.signal }), { name: 'AbortError' });
+  assert.equal(JSON.parse(await fs.readFile(path.join(lock, 'owner'), 'utf8')).host, 'other');
 });
 
 test('list honors prefix and a bounded result size', async t => {

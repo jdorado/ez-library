@@ -142,7 +142,7 @@ export async function syncPolicy(root, { expected, mode, intervalSeconds = 60 })
   });
 }
 
-export async function syncRun(root, stateRoot = root) {
+export async function syncRun(root, stateRoot = root, { signal } = {}) {
   return locked(root, async root => {
     await prepare(root);
     const config = await readJSON(location(root));
@@ -172,5 +172,5 @@ export async function syncRun(root, stateRoot = root) {
     await atomic(path.join(root, 'sync/status.json'), jsonBytes(status));
     if (status.textMirror?.state === 'pending') fail('UNAVAILABLE', 'GitHub text mirror pending: ' + status.textMirror.error.message);
     return status;
-  });
+  }, { signal });
 }
