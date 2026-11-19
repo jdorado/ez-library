@@ -2,7 +2,7 @@
 
 ## 0.1.0-beta.19
 
-- Writers wait up to 60 seconds for a live holder of the Library writer lock (named in its `owner` file) instead of failing `BUSY` at once, so concurrent agent writes and the resident sync no longer drop records. A lock without an owner still fails closed after a one-second grace; a lock held by the same process fails at once; the resident worker stops waiting when told to stop.
+- Writers wait up to 60 seconds for a live holder of the Library writer lock (named in its `owner` file) instead of failing `BUSY` at once, so concurrent agent writes and the resident sync no longer fail on a brief overlap. A lock without an owner still fails closed after a one-second grace; a lock held by the same process fails at once; the resident worker stops waiting when told to stop.
 - Requires Ez core 0.1.0-beta.50 or newer (unchanged).
 
 ## 0.1.0-beta.18
