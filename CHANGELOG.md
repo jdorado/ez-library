@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-beta.19
+
+- Writers wait up to 60 seconds for a live holder of the Library writer lock (named in its `owner` file) instead of failing `BUSY` at once, so concurrent agent writes and the resident sync no longer fail on a brief overlap. A lock without an owner still fails closed after a one-second grace; a lock held by the same process fails at once; the resident worker stops waiting when told to stop.
+- Requires Ez core 0.1.0-beta.50 or newer (unchanged).
+
 ## 0.1.0-beta.18
 
 - Reuse unchanged file digests in the resident sync worker: inventory scans skip rereading files whose device, inode, size, mtime and ctime are unchanged, and the text mirror rewrites only changed files and skips fetch, push and verification when the remote head already matches. Idle sync cycles no longer hash every original twice per minute.
