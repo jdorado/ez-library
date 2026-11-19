@@ -144,6 +144,18 @@ test('writer lock is fail-closed, including stale-looking locks', async t => {
   assert((await fs.stat(path.join(root, '.writer-lock'))).isDirectory());
 });
 
+test('a live writer is waited for instead of failing BUSY', async t => {
+  const root = await fixture(t); const lock = path.join(root, '.writer-lock');
+  await fs.mkdir(lock);
+  await fs.writeFile(path.join(lock, 'owner'), JSON.stringify({ pid: process.pid + 1, host: 'other', at: new Date().toISOString() }));
+  const release = new Promise(resolve => setTimeout(async () => {
+    await fs.rm(path.join(lock, 'owner')); await fs.rmdir(lock); resolve();
+  }, 600));
+  await save(root, 'after wait');
+  await release;
+  await assert.rejects(fs.stat(lock), code('ENOENT'));
+});
+
 test('list honors prefix and a bounded result size', async t => {
   const root = await fixture(t); await save(root, 'a');
   await put(root, 'notes/second.md', input('b'), { key: 'b', expected: 'new' });

@@ -3,6 +3,7 @@ import { createReadStream, createWriteStream, constants } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import path from 'node:path';
+import { hostname } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 
 export class LibraryError extends Error {
@@ -80,15 +81,40 @@ export async function initialize(root) {
   }
   return root;
 }
+// A live writer records itself in the lock and others wait for it briefly. A lock
+// with no owner is an interrupted operation and fails closed.
+const LOCK_WAIT_MS = 60_000;
+const OWNERLESS_GRACE_MS = 1_000;
+async function lockOwner(lock) {
+  try { return JSON.parse(await fs.readFile(path.join(lock, 'owner'), 'utf8')); }
+  catch (e) { if (e.code === 'ENOENT' || e instanceof SyntaxError) return null; throw e; }
+}
+async function acquire(lock) {
+  const started = Date.now();
+  let ownerless = null;
+  for (;;) {
+    try {
+      await fs.mkdir(lock, { mode: 0o700 });
+      try { await fs.writeFile(path.join(lock, 'owner'), JSON.stringify({ pid: process.pid, host: hostname(), at: new Date().toISOString() }), { mode: 0o600, flag: 'wx' }); }
+      catch (e) { await fs.rmdir(lock); throw e; }
+      return;
+    } catch (e) { if (e.code !== 'EEXIST') throw e; }
+    const owner = await lockOwner(lock);
+    if (owner?.pid === process.pid && owner?.host === hostname()) fail('BUSY', 'Writer lock is held by this process');
+    ownerless = owner ? null : ownerless ?? Date.now();
+    if (ownerless !== null && Date.now() - ownerless >= OWNERLESS_GRACE_MS)
+      fail('BUSY', 'Writer lock exists without an owner; confirm no command is active before recovering an interrupted operation');
+    if (Date.now() - started >= LOCK_WAIT_MS)
+      fail('BUSY', `Writer lock held by pid ${owner?.pid} on ${owner?.host} since ${owner?.at}; confirm it is active before recovering an interrupted operation`);
+    await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 150));
+  }
+}
 export async function locked(root, fn) {
   root = await rootDir(root, true);
   const lock = path.join(root, '.writer-lock');
-  await fs.mkdir(lock, { mode: 0o700 }).catch(e => {
-    if (e.code === 'EEXIST') fail('BUSY', 'Writer lock exists; confirm no command is active before recovering an interrupted operation');
-    throw e;
-  });
+  await acquire(lock);
   try { return await fn(await initialize(root)); }
-  finally { await fs.rmdir(lock); }
+  finally { await fs.rm(path.join(lock, 'owner'), { force: true }); await fs.rmdir(lock); }
 }
 async function opened(file, read) {
   const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
