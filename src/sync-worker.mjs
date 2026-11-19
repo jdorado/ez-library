@@ -27,11 +27,11 @@ while (!stopping) {
         const enabled = config?.mode === 'two-way' || (config?.backend === 'git' && config.mode === 'pull-only');
         if (!enabled && (config || mirror?.mode !== 'one-way')) {
           due.delete(name);
-          if ((await embeddingStatus()).state === 'ready') await locked(selected, refreshIndex);
+          if ((await embeddingStatus()).state === 'ready') await locked(selected, refreshIndex, { signal: controller.signal });
           continue;
         }
         if ((due.get(name) || 0) <= Date.now()) {
-          try { await syncRun(selected, root); }
+          try { await syncRun(selected, root, { signal: controller.signal }); }
           finally { due.set(name, Date.now() + (config?.intervalSeconds || 60) * 1000); }
         }
         interval = Math.min(interval, Math.max(1, ((due.get(name) || 0) - Date.now()) / 1000));
