@@ -156,6 +156,17 @@ test('a live writer is waited for instead of failing BUSY', async t => {
   await assert.rejects(fs.stat(lock), code('ENOENT'));
 });
 
+test('a lock left by a dead process on this host is reclaimed, including a restart that reuses our pid', async t => {
+  const { hostname } = await import('node:os');
+  for (const pid of [process.pid, 2 ** 22 + 7]) {
+    const root = await fixture(t); const lock = path.join(root, '.writer-lock');
+    await fs.mkdir(lock);
+    await fs.writeFile(path.join(lock, 'owner'), JSON.stringify({ pid, host: hostname(), at: '2026-11-24T08:10:12.895Z' }));
+    assert.equal(await locked(root, () => 'ran'), 'ran');
+    await assert.rejects(fs.stat(lock), code('ENOENT'));
+  }
+});
+
 test('an aborted wait gives up without taking the lock', async t => {
   const root = await fixture(t); const lock = path.join(root, '.writer-lock');
   await fs.mkdir(lock);
