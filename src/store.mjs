@@ -83,12 +83,36 @@ export async function initialize(root) {
   return root;
 }
 // A live writer records itself in the lock and others wait for it briefly. A lock
-// with no owner is an interrupted operation and fails closed.
+// with no owner is an interrupted operation and fails closed. A lock owned on this
+// host by a process that no longer exists is reclaimed: a restarted container keeps
+// its hostname and often its pid, so pid + host alone would match the dead writer.
+// Same hostname is taken to mean the same pid namespace (Docker's default).
 const LOCK_WAIT_MS = 60_000;
 const OWNERLESS_GRACE_MS = 1_000;
+const PROCESS_ID = randomUUID();
 async function lockOwner(lock) {
   try { return JSON.parse(await fs.readFile(path.join(lock, 'owner'), 'utf8')); }
   catch (e) { if (e.code === 'ENOENT' || e instanceof SyntaxError) return null; throw e; }
+}
+function alive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return true; // unreadable owner: fail closed
+  if (pid === process.pid) return false; // our pid, but not our PROCESS_ID: a previous process
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code !== 'ESRCH'; }
+}
+// Reclaimers take turns under an exclusive mutex and remove the lock only if it still
+// names the same dead owner. A dead owner's lock cannot change while it exists, and
+// nothing else removes it, so the check holds until removal. Returns whether it
+// removed the lock; otherwise the caller waits as for a live holder, so a mutex left
+// by a crash ends in BUSY naming it.
+async function reclaim(lock, dead) {
+  const mutex = `${lock}.reclaim`;
+  try { await fs.mkdir(mutex, { mode: 0o700 }); } catch (e) { if (e.code === 'EEXIST') return false; throw e; }
+  try {
+    const owner = await lockOwner(lock);
+    if (!owner || !['pid', 'host', 'id', 'at'].every(k => owner[k] === dead[k])) return false;
+    await fs.rm(path.join(lock, 'owner'), { force: true }); await fs.rmdir(lock);
+    return true;
+  } finally { await fs.rmdir(mutex); }
 }
 async function acquire(lock, signal) {
   const started = Date.now();
@@ -97,17 +121,20 @@ async function acquire(lock, signal) {
     signal?.throwIfAborted();
     try {
       await fs.mkdir(lock, { mode: 0o700 });
-      try { await fs.writeFile(path.join(lock, 'owner'), JSON.stringify({ pid: process.pid, host: hostname(), at: new Date().toISOString() }), { mode: 0o600, flag: 'wx' }); }
+      try { await fs.writeFile(path.join(lock, 'owner'), JSON.stringify({ pid: process.pid, host: hostname(), id: PROCESS_ID, at: new Date().toISOString() }), { mode: 0o600, flag: 'wx' }); }
       catch (e) { await fs.rmdir(lock); throw e; }
       return;
     } catch (e) { if (e.code !== 'EEXIST') throw e; }
     const owner = await lockOwner(lock);
-    if (owner?.pid === process.pid && owner?.host === hostname()) fail('BUSY', 'Writer lock is held by this process');
+    if (owner?.host === hostname()) {
+      if (owner.id === PROCESS_ID) fail('BUSY', 'Writer lock is held by this process');
+      if (!alive(owner.pid) && await reclaim(lock, owner)) continue;
+    }
     ownerless = owner ? null : ownerless ?? Date.now();
     if (ownerless !== null && Date.now() - ownerless >= OWNERLESS_GRACE_MS)
       fail('BUSY', 'Writer lock exists without an owner; confirm no command is active before recovering an interrupted operation');
     if (Date.now() - started >= LOCK_WAIT_MS)
-      fail('BUSY', `Writer lock held by pid ${owner?.pid} on ${owner?.host} since ${owner?.at}; confirm it is active before recovering an interrupted operation`);
+      fail('BUSY', `Writer lock held by pid ${owner?.pid} on ${owner?.host} since ${owner?.at}; confirm it is active before recovering an interrupted operation${await fs.stat(`${lock}.reclaim`).then(() => ` (an interrupted reclaim also left ${lock}.reclaim)`, () => '')}`);
     await sleep(100 + Math.random() * 150, undefined, { signal });
   }
 }

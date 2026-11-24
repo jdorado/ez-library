@@ -156,6 +156,47 @@ test('a live writer is waited for instead of failing BUSY', async t => {
   await assert.rejects(fs.stat(lock), code('ENOENT'));
 });
 
+test('a lock left by a dead process on this host is reclaimed, including a restart that reuses our pid', async t => {
+  const { hostname } = await import('node:os');
+  for (const pid of [process.pid, 2 ** 22 + 7]) {
+    const root = await fixture(t); const lock = path.join(root, '.writer-lock');
+    await fs.mkdir(lock);
+    await fs.writeFile(path.join(lock, 'owner'), JSON.stringify({ pid, host: hostname(), at: '2026-11-24T08:10:12.895Z' }));
+    assert.equal(await locked(root, () => 'ran'), 'ran');
+    await assert.rejects(fs.stat(lock), code('ENOENT'));
+  }
+});
+
+test('concurrent processes reclaim one dead lock without overlapping writers', async t => {
+  const { hostname } = await import('node:os');
+  const { spawn } = await import('node:child_process');
+  const store = new URL('../src/store.mjs', import.meta.url).href;
+  const child = `const { locked } = await import(${JSON.stringify(store)}); const fs = await import('node:fs/promises');
+    await locked(process.argv[1], async () => { const f = process.argv[1] + '/in'; await fs.writeFile(f, '', { flag: 'wx' });
+      await new Promise(r => setTimeout(r, 30)); await fs.rm(f); });`;
+  for (let round = 0; round < 5; round++) {
+    const root = await fixture(t); const lock = path.join(root, '.writer-lock');
+    await fs.mkdir(lock);
+    await fs.writeFile(path.join(lock, 'owner'), JSON.stringify({ pid: 2 ** 22 + 7, host: hostname(), at: '2026-11-24T08:10:12.895Z' }));
+    const codes = await Promise.all(Array.from({ length: 4 }, () => new Promise(resolve =>
+      spawn(process.execPath, ['--input-type=module', '-e', child, root], { stdio: 'inherit' }).on('exit', resolve))));
+    assert.deepEqual(codes, [0, 0, 0, 0]);
+    await assert.rejects(fs.stat(lock), code('ENOENT'));
+    await assert.rejects(fs.stat(`${lock}.reclaim`), code('ENOENT'));
+  }
+});
+
+test('a reclaim mutex left by a crash makes writers wait, not spin', async t => {
+  const { hostname } = await import('node:os');
+  const root = await fixture(t); const lock = path.join(root, '.writer-lock');
+  await fs.mkdir(lock); await fs.mkdir(`${lock}.reclaim`);
+  await fs.writeFile(path.join(lock, 'owner'), JSON.stringify({ pid: 2 ** 22 + 7, host: hostname(), at: '2026-11-24T08:10:12.895Z' }));
+  const cpu = process.cpuUsage();
+  await assert.rejects(locked(root, () => assert.fail('must not run'), { signal: AbortSignal.timeout(1000) }), { name: 'AbortError' });
+  const used = process.cpuUsage(cpu); assert((used.user + used.system) / 1000 < 400, 'waiting must sleep between attempts');
+  assert((await fs.stat(lock)).isDirectory());
+});
+
 test('an aborted wait gives up without taking the lock', async t => {
   const root = await fixture(t); const lock = path.join(root, '.writer-lock');
   await fs.mkdir(lock);
