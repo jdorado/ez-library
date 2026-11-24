@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import { atomic, fail, hash, jsonBytes, locked, safePath } from './store.mjs';
 import { inventory } from './indexer.mjs';
-import { git, repositoryURL, tree } from './git-sync.mjs';
+import { git, network, repositoryURL, tree } from './git-sync.mjs';
 import { native, succeeded } from './native.mjs';
 
 const file = root => path.join(root, 'sync/text-mirror.json');
@@ -88,13 +88,13 @@ export async function mirrorAdopt(root, repository, branch = 'main', extensions 
     if (origin.code !== 0) succeeded(await mirrorGit(root, config, ['remote', 'add', 'origin', repositoryURL(repository)]), 'Set mirror remote');
     // Existing history requires an exact reviewed remote revision and a safe
     // projection. Adoption never writes source files or pushes a remote change.
-    const existing = succeeded(await mirrorGit(root, config, ['ls-remote', 'origin', 'refs/heads/' + branch]), 'Check mirror destination');
+    const existing = succeeded(await mirrorGit(root, config, ['ls-remote', 'origin', 'refs/heads/' + branch], network()), 'Check mirror destination');
     const remoteHead = existing.trim().split(/\s+/)[0];
     if (expectedRemote !== undefined && !/^[a-f0-9]{40}$/.test(expectedRemote)) fail('INVALID', 'Use the full expected remote commit SHA');
     if (remoteHead && !expectedRemote) fail('CONFLICT', 'Existing mirror history requires --expected-remote with the reviewed commit SHA');
     if (expectedRemote && remoteHead !== expectedRemote) fail('CONFLICT', 'Mirror remote no longer matches the expected commit');
     if (remoteHead) {
-      succeeded(await mirrorGit(root, config, ['fetch', '--no-tags', 'origin', 'refs/heads/' + branch]), 'Fetch existing mirror');
+      succeeded(await mirrorGit(root, config, ['fetch', '--no-tags', 'origin', 'refs/heads/' + branch], network()), 'Fetch existing mirror');
       if (succeeded(await mirrorGit(root, config, ['rev-parse', 'FETCH_HEAD']), 'Read fetched mirror').trim() !== expectedRemote) fail('CONFLICT', 'Mirror changed during adoption');
       const entries = await tree(root, { ...config, textMirror: true }, 'FETCH_HEAD');
       canonicalHistory(entries);
@@ -123,20 +123,22 @@ export async function mirrorPolicy(root, expected, mode) {
   });
 }
 // Caller holds the Library writer lock, after a successful folder transfer.
-export async function mirrorTransfer(root) {
+export async function mirrorTransfer(root, step = async () => {}) {
   const { config } = await mirrorStatus(root);
   if (!config || config.mode === 'paused') return { state: config ? 'paused' : 'disabled' };
   const selected = textProjection(await inventory(path.join(root, 'files')), config);
   const run = (args, options) => mirrorGit(root, config, args, options);
   if (succeeded(await run(['remote', 'get-url', 'origin']), 'Check mirror remote').trim() !== repositoryURL(config.repository)) fail('CONFLICT', 'Mirror remote changed');
-  const remote = succeeded(await run(['ls-remote', 'origin', 'refs/heads/' + config.branch]), 'Read mirror head').trim().split(/\s+/)[0];
+  await step('mirror-read');
+  const remote = succeeded(await run(['ls-remote', 'origin', 'refs/heads/' + config.branch], network()), 'Read mirror head').trim().split(/\s+/)[0];
   const local = await run(['rev-parse', '--verify', 'HEAD']);
   if (local.code === 0) canonicalHistory(await tree(root, { ...config, textMirror: true }, 'HEAD'));
   if (remote) {
     if (config.lastCommit && remote !== config.lastCommit && remote !== local.stdout.trim()) fail('CONFLICT', 'Mirror branch was changed externally');
     if (local.code !== 0) fail('CONFLICT', 'Mirror remote changed before first commit');
     if (remote !== local.stdout.trim()) {
-      succeeded(await run(['fetch', '--no-tags', 'origin', 'refs/heads/' + config.branch]), 'Fetch mirror head');
+      await step('mirror-fetch');
+      succeeded(await run(['fetch', '--no-tags', 'origin', 'refs/heads/' + config.branch], network()), 'Fetch mirror head');
       if ((await run(['merge-base', '--is-ancestor', 'FETCH_HEAD', 'HEAD'])).code !== 0) fail('CONFLICT', 'GitHub mirror was edited externally; preserve and reconcile it before resuming');
     }
   } else if (config.lastCommit) fail('CONFLICT', 'Mirror branch disappeared; no automatic recreation');
@@ -163,8 +165,9 @@ export async function mirrorTransfer(root) {
   const commit = succeeded(await run(['rev-parse', 'HEAD']), 'Read mirror commit').trim();
   // The remote head read above already proves an unchanged projection.
   if (remote !== commit) {
-    succeeded(await run(['push', 'origin', 'HEAD:refs/heads/' + config.branch]), 'Push text mirror');
-    const verified = succeeded(await run(['ls-remote', 'origin', 'refs/heads/' + config.branch]), 'Verify text mirror').trim().split(/\s+/)[0];
+    await step('mirror-push');
+    succeeded(await run(['push', 'origin', 'HEAD:refs/heads/' + config.branch], network()), 'Push text mirror');
+    const verified = succeeded(await run(['ls-remote', 'origin', 'refs/heads/' + config.branch], network()), 'Verify text mirror').trim().split(/\s+/)[0];
     if (verified !== commit) fail('UNCERTAIN', 'Mirror advanced during verification');
   }
   if (config.lastCommit !== commit) await atomic(file(root), jsonBytes({ ...config, lastCommit: commit }));

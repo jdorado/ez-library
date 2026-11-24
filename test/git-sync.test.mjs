@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { gitAdopt, gitTransfer, git, repositoryURL } from '../src/git-sync.mjs';
 import { locked, put, digest, organize, jsonBytes } from '../src/store.mjs';
-import { syncPolicy, syncStatus } from '../src/sync.mjs';
+import { syncPolicy, syncRun, syncStatus } from '../src/sync.mjs';
 
 async function setup(t) {
   const base = await fs.realpath(await fs.mkdtemp(path.join(tmpdir(), 'library-git-')));
@@ -301,4 +301,32 @@ test('existing checkout rejects staged work, branch changes and origin changes w
   outside(['-C', checkout, 'remote', 'set-url', 'origin', remote + '-other']);
   await assert.rejects(cycle(root, config), { code: 'CONFLICT' });
   assert.equal(await fs.readFile(path.join(checkout, 'note0.md'), 'utf8'), 'User staged edit');
+});
+
+test('a stalled Git transport ends the cycle UNAVAILABLE, releases the writer lock and the next sync succeeds', async t => {
+  const { base, root, remote, outside } = await setup(t);
+  const { config } = await gitAdopt(root, remote);
+  // A transport that connects, then never answers.
+  const stall = path.join(base, 'stall.sh');
+  await fs.writeFile(stall, '#!/bin/sh\nexec sleep 120\n', { mode: 0o755 });
+  await git(root, config, ['config', 'remote.origin.uploadpack', stall]);
+  await put(root, 'stalled.md', Readable.from(['# Stalled\nMarigold ledger.']), { expected: 'new', key: 'stalled' });
+  const previous = process.env.EZ_LIBRARY_GIT_TIMEOUT_MS;
+  process.env.EZ_LIBRARY_GIT_TIMEOUT_MS = '1500';
+  t.after(() => { if (previous === undefined) delete process.env.EZ_LIBRARY_GIT_TIMEOUT_MS; else process.env.EZ_LIBRARY_GIT_TIMEOUT_MS = previous; });
+  const started = Date.now();
+  await assert.rejects(syncRun(root), { code: 'UNAVAILABLE', message: /timed out/ });
+  assert(Date.now() - started < 30000, 'the stalled fetch was stopped, not waited for');
+  const failed = (await syncStatus(root)).status;
+  assert.equal(failed.state, 'sync-error');
+  assert.equal(failed.step, 'fetch');
+  assert.equal(failed.error.code, 'UNAVAILABLE');
+  // The writer lock is free: another writer is not BUSY.
+  await put(root, 'after.md', Readable.from(['# After\nHeron.']), { expected: 'new', key: 'after' });
+  await git(root, config, ['config', '--unset', 'remote.origin.uploadpack']);
+  // The next cycle takes the same writer lock and transfers both files.
+  const result = await cycle(root, config);
+  assert.equal(result.remoteVerified, true);
+  assert.match(outside(['--git-dir', remote, 'show', 'main:stalled.md']), /Marigold/);
+  assert.match(outside(['--git-dir', remote, 'show', 'main:after.md']), /Heron/);
 });

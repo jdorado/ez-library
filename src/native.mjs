@@ -10,7 +10,7 @@ export function environment(root) {
     ...(process.env.EZ_LIBRARY_EMBED_SOCKET ? { EZ_LIBRARY_EMBED_SOCKET: process.env.EZ_LIBRARY_EMBED_SOCKET } : {}), LANG: 'C.UTF-8',
     RCLONE_CONFIG: path.join(root, 'sync/rclone.conf') };
 }
-export function native(root, executable, args, { inherit = false, env = {}, input } = {}) {
+export function native(root, executable, args, { inherit = false, env = {}, input, timeout } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(executable, args, { cwd: root, env: { ...environment(root), ...env }, stdio: inherit ? 'inherit' : [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
     if (!inherit && input !== undefined) { child.stdin.on('error', () => {}); child.stdin.end(input); }
@@ -24,10 +24,24 @@ export function native(root, executable, args, { inherit = false, env = {}, inpu
     const terminate = () => child.kill('SIGTERM');
     const interrupt = () => child.kill('SIGINT');
     process.once('SIGTERM', terminate); process.once('SIGINT', interrupt);
-    const cleanup = () => { process.removeListener('SIGTERM', terminate); process.removeListener('SIGINT', interrupt); };
+    // A bounded call that stalls is killed (SIGKILL after a grace period) and
+    // fails UNAVAILABLE as soon as the child exits, even if an orphaned
+    // grandchild still holds its pipes open.
+    let timedOut = false, timer, killer;
+    if (timeout) timer = setTimeout(() => {
+      timedOut = true; child.kill('SIGTERM');
+      killer = setTimeout(() => child.kill('SIGKILL'), 5000);
+    }, timeout);
+    const cleanup = () => { clearTimeout(timer); clearTimeout(killer); process.removeListener('SIGTERM', terminate); process.removeListener('SIGINT', interrupt); };
     child.once('error', e => { cleanup(); reject(e); });
+    child.once('exit', () => {
+      if (!timedOut) return;
+      cleanup();
+      try { fail('UNAVAILABLE', `${path.basename(executable)} timed out after ${Math.round(timeout / 1000)}s and was stopped`); } catch (e) { reject(e); }
+    });
     child.once('close', code => {
       cleanup();
+      if (timedOut) return;
       if (bytes > 32 * 1024 * 1024) reject(Error('Native output exceeded 32 MiB'));
       else resolve({ code: code ?? 130, stdout: out, stderr: err });
     });
