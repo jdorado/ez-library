@@ -35,7 +35,8 @@ export function native(root, executable, args, { inherit = false, env = {}, inpu
     const cleanup = () => { clearTimeout(timer); clearTimeout(killer); process.removeListener('SIGTERM', terminate); process.removeListener('SIGINT', interrupt); };
     child.once('error', e => { cleanup(); reject(e); });
     child.once('exit', () => {
-      if (!timedOut) return;
+      // Exited in time: the bound is met even if a grandchild still holds the pipes until close.
+      if (!timedOut) { clearTimeout(timer); return; }
       cleanup();
       try { fail('UNAVAILABLE', `${path.basename(executable)} timed out after ${Math.round(timeout / 1000)}s and was stopped`); } catch (e) { reject(e); }
     });

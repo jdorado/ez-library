@@ -3,7 +3,7 @@
 ## 0.1.0-beta.21
 
 - Git sync can no longer hang forever holding the writer lock. The SSH command adds `ServerAliveInterval=15` and `ServerAliveCountMax=4`, and every remote-touching Git call (fetch, push, ls-remote, in sync, text mirror and adoption) is bounded at 5 minutes: on expiry the child is stopped (SIGTERM, then SIGKILL after 5 seconds) and the cycle fails `UNAVAILABLE`, so the lock is released and the next interval retries. Before this, a connection that stalled after connect left `sync-status` at `syncing` and every writer `BUSY` until the service was restarted (#53).
-- `sync/status.json` records the current `step` (`fetch`, `push`, `verify`, `mirror-read`, `mirror-fetch`, `mirror-push`, `index`) while a cycle runs; a failed cycle keeps it, so `sync-status` shows where it stopped.
+- `sync/status.json` records the current `step` while a cycle runs (`fetch`, `push`, `verify`, then `mirror-read`, `mirror-fetch`, `mirror-push` and `index`); a failed Git transfer or index keeps its step, so `sync-status` shows where it stopped. A text-mirror failure is reported in `textMirror.error`, naming the failed operation.
 - Requires Ez core 0.1.0-beta.50 or newer (unchanged).
 
 ## 0.1.0-beta.20
