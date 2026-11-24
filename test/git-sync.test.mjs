@@ -324,9 +324,9 @@ test('a stalled Git transport ends the cycle UNAVAILABLE, releases the writer lo
   // The writer lock is free: another writer is not BUSY.
   await put(root, 'after.md', Readable.from(['# After\nHeron.']), { expected: 'new', key: 'after' });
   await git(root, config, ['config', '--unset', 'remote.origin.uploadpack']);
-  const result = await syncRun(root);
-  assert.equal(result.git.remoteVerified, true);
-  assert.equal(result.step, undefined);
+  // The next cycle takes the same writer lock and transfers both files.
+  const result = await cycle(root, config);
+  assert.equal(result.remoteVerified, true);
   assert.match(outside(['--git-dir', remote, 'show', 'main:stalled.md']), /Marigold/);
   assert.match(outside(['--git-dir', remote, 'show', 'main:after.md']), /Heron/);
 });
