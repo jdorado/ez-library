@@ -192,7 +192,7 @@ test('a reclaim mutex left by a crash makes writers wait, not spin', async t => 
   await fs.mkdir(lock); await fs.mkdir(`${lock}.reclaim`);
   await fs.writeFile(path.join(lock, 'owner'), JSON.stringify({ pid: 2 ** 22 + 7, host: hostname(), at: '2026-11-24T08:10:12.895Z' }));
   const cpu = process.cpuUsage();
-  await assert.rejects(locked(root, () => assert.fail('must not run'), { signal: AbortSignal.timeout(1000) }), { name: 'TimeoutError' });
+  await assert.rejects(locked(root, () => assert.fail('must not run'), { signal: AbortSignal.timeout(1000) }), { name: 'AbortError' });
   const used = process.cpuUsage(cpu); assert((used.user + used.system) / 1000 < 400, 'waiting must sleep between attempts');
   assert((await fs.stat(lock)).isDirectory());
 });
