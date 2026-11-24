@@ -2,7 +2,7 @@
 
 ## 0.1.0-beta.20
 
-- Reclaim a writer lock left by a dead process on the same host. The lock owner now records a per-process id; a same-host lock whose pid no longer exists, or that names this process's pid without its id (a restarted container reusing pid and hostname), is removed. Reclaimers take turns under an exclusive mutex and remove the lock only if it still names the same dead owner, so concurrent callers never take over a live lock. Before this, a restarted resident worker read the dead writer's lock as its own and failed `BUSY` on every cycle until the lock was removed by hand. Locks from other hosts, locks without an owner and an unreadable owner pid still fail closed; a mutex left by a crash also fails closed. Same hostname is taken to mean the same pid namespace (Docker's default).
+- Reclaim a writer lock left by a dead process on the same host. The lock owner now records a per-process id; a same-host lock whose pid no longer exists, or that names this process's pid without its id (a restarted container reusing pid and hostname), is removed. Reclaimers take turns under an exclusive mutex and remove the lock only if it still names the same dead owner, so concurrent callers never take over a live lock. Before this, a restarted resident worker read the dead writer's lock as its own and failed `BUSY` on every cycle until the lock was removed by hand. Locks from other hosts, locks without an owner and an unreadable owner pid still fail closed; a reclaim mutex left by a crash makes writers wait and fail `BUSY` naming it. Same hostname is taken to mean the same pid namespace (Docker's default).
 - Requires Ez core 0.1.0-beta.50 or newer (unchanged).
 
 ## 0.1.0-beta.19
