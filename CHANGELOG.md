@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-beta.21
+
+- Git sync can no longer hang forever holding the writer lock. The SSH command adds `ServerAliveInterval=15` and `ServerAliveCountMax=4`, and every remote-touching Git call (fetch, push, ls-remote, in sync, text mirror and adoption) is bounded at 5 minutes: on expiry the child is stopped (SIGTERM, then SIGKILL after 5 seconds) and the cycle fails `UNAVAILABLE`, so the lock is released and the next interval retries. Before this, a connection that stalled after connect left `sync-status` at `syncing` and every writer `BUSY` until the service was restarted (#53).
+- `sync/status.json` records the current `step` while a cycle runs (`fetch`, `push`, `verify`, then `mirror-read`, `mirror-fetch`, `mirror-push` and `index`); a failed Git transfer or index keeps its step, so `sync-status` shows where it stopped. A text-mirror failure is reported in `textMirror.error`, naming the failed operation.
+- Requires Ez core 0.1.0-beta.50 or newer (unchanged).
+
 ## 0.1.0-beta.20
 
 - Reclaim a writer lock left by a dead process on the same host. The lock owner now records a per-process id; a same-host lock whose pid no longer exists, or that names this process's pid without its id (a restarted container reusing pid and hostname), is removed. Reclaimers take turns under an exclusive mutex and remove the lock only if it still names the same dead owner, so concurrent callers never take over a live lock. Before this, a restarted resident worker read the dead writer's lock as its own and failed `BUSY` on every cycle until the lock was removed by hand. Locks from other hosts, locks without an owner and an unreadable owner pid still fail closed; a reclaim mutex left by a crash makes writers wait and fail `BUSY` naming it. Same hostname is taken to mean the same pid namespace (Docker's default).

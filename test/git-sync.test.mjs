@@ -330,3 +330,11 @@ test('a stalled Git transport ends the cycle UNAVAILABLE, releases the writer lo
   assert.match(outside(['--git-dir', remote, 'show', 'main:stalled.md']), /Marigold/);
   assert.match(outside(['--git-dir', remote, 'show', 'main:after.md']), /Heron/);
 });
+
+test('a bounded call that exits in time settles even while a grandchild still holds its pipes', async t => {
+  const { native } = await import('../src/native.mjs');
+  const root = await fs.mkdtemp(path.join(tmpdir(), 'ez-library-native-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const result = await native(root, '/bin/sh', ['-c', 'sleep 2 & exit 0'], { timeout: 500 });
+  assert.equal(result.code, 0);
+});
