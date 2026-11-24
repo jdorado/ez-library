@@ -86,25 +86,32 @@ export async function initialize(root) {
 // with no owner is an interrupted operation and fails closed. A lock owned on this
 // host by a process that no longer exists is reclaimed: a restarted container keeps
 // its hostname and often its pid, so pid + host alone would match the dead writer.
+// Same hostname is taken to mean the same pid namespace (Docker's default).
 const LOCK_WAIT_MS = 60_000;
-const PROCESS_ID = randomUUID();
 const OWNERLESS_GRACE_MS = 1_000;
+const PROCESS_ID = randomUUID();
 async function lockOwner(lock) {
   try { return JSON.parse(await fs.readFile(path.join(lock, 'owner'), 'utf8')); }
   catch (e) { if (e.code === 'ENOENT' || e instanceof SyntaxError) return null; throw e; }
 }
 function alive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return true; // unreadable owner: fail closed
   if (pid === process.pid) return false; // our pid, but not our PROCESS_ID: a previous process
-  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code !== 'ESRCH'; }
 }
+// Reclaimers take turns under an exclusive mutex and remove the lock only if it still
+// names the same dead owner. A dead owner's lock cannot change while it exists, and
+// nothing else removes it, so the check holds until removal. A mutex left by a crash
+// makes writers wait and fail BUSY, like any other interrupted lock.
 async function reclaim(lock, dead) {
-  const moved = `${lock}.dead-${randomUUID()}`;
-  try { await fs.rename(lock, moved); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
-  const owner = await lockOwner(moved);
-  if (owner?.pid !== dead.pid || owner?.at !== dead.at || owner?.id !== dead.id) {
-    await fs.rename(moved, lock); return; // another writer took it in between; leave it
-  }
-  await fs.rm(moved, { recursive: true, force: true });
+  const mutex = `${lock}.reclaim`;
+  try { await fs.mkdir(mutex, { mode: 0o700 }); } catch (e) { if (e.code === 'EEXIST') return; throw e; }
+  try {
+    const owner = await lockOwner(lock);
+    if (owner && ['pid', 'host', 'id', 'at'].every(k => owner[k] === dead[k])) {
+      await fs.rm(path.join(lock, 'owner'), { force: true }); await fs.rmdir(lock);
+    }
+  } finally { await fs.rmdir(mutex); }
 }
 async function acquire(lock, signal) {
   const started = Date.now();
