@@ -32,6 +32,10 @@ export async function gitKey(root, repository) {
   });
 }
 
+// Remote-touching Git calls are bounded so a stalled transport ends the cycle
+// (UNAVAILABLE) and releases the writer lock instead of blocking every writer.
+export const network = () => ({ timeout: Number(process.env.EZ_LIBRARY_GIT_TIMEOUT_MS) || 5 * 60 * 1000 });
+
 export function git(root, config, args, options = {}) {
   const dir = privateDir(root, config.repository);
   const workTree = path.join(root, config.textMirror ? 'sync/text-mirror/files' : 'files');
@@ -41,7 +45,7 @@ export function git(root, config, args, options = {}) {
     '-c', 'user.name=Ez Library', '-c', 'user.email=library@localhost', ...args], {
     ...options, env: { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0',
       GIT_ALLOW_PROTOCOL: path.isAbsolute(config.repository) ? 'file' : 'ssh',
-      GIT_SSH_COMMAND: ['/usr/bin/ssh', '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', '-o', 'IdentitiesOnly=yes',
+      GIT_SSH_COMMAND: ['/usr/bin/ssh', '-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=4', '-o', 'IdentitiesOnly=yes',
         '-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=' + path.join(dir, 'known_hosts'), '-i', path.join(dir, 'key')].map(quote).join(' ') } });
 }
 
@@ -106,7 +110,7 @@ export async function gitAdopt(root, repository, branch = 'main', stateRoot = ro
     if (reuseCheckout) {
       config.checkoutOrigin = await existingCheckout(root, config);
       await tree(root, config, 'HEAD');
-      succeeded(await git(root, config, ['fetch', '--no-tags', remote, 'refs/heads/' + branch]), 'Verify selected remote');
+      succeeded(await git(root, config, ['fetch', '--no-tags', remote, 'refs/heads/' + branch], network()), 'Verify selected remote');
       await tree(root, config, 'FETCH_HEAD');
       // No checkout, reset, commit or push during adoption. Native history and
       // eligible unstaged edits remain owned by the existing checkout.
@@ -129,7 +133,7 @@ export async function gitAdopt(root, repository, branch = 'main', stateRoot = ro
     succeeded(await git(root, config, ['remote', 'add', 'origin', remote]), 'Set Git remote');
     // A failed setup leaves the prepared binding paused, never silently rebound.
     await atomic(binding, jsonBytes(config));
-    succeeded(await git(root, config, ['fetch', '--no-tags', 'origin', 'refs/heads/' + branch]), 'Fetch existing branch');
+    succeeded(await git(root, config, ['fetch', '--no-tags', 'origin', 'refs/heads/' + branch], network()), 'Fetch existing branch');
     const entries = await tree(root, config, 'FETCH_HEAD');
     const existing = new Map(local.map(f => [f.path, f]));
     for (const entry of entries) {
@@ -148,7 +152,7 @@ export async function gitAdopt(root, repository, branch = 'main', stateRoot = ro
   });
 }
 
-export async function gitTransfer(root, config) {
+export async function gitTransfer(root, config, step = async () => {}) {
   if (!['two-way', 'pull-only'].includes(config.mode)) fail('INVALID', 'Use two-way or pull-only Git sync');
   const pullOnly = config.mode === 'pull-only';
   await checkPolicy(root, config.repository, config.branch);
@@ -172,7 +176,8 @@ export async function gitTransfer(root, config) {
   }
   const transport = config.existingCheckout ? repositoryURL(config.repository) : 'origin';
   const trackingRef = 'refs/remotes/origin/' + config.branch;
-  succeeded(await git(root, config, ['fetch', '--no-tags', transport, 'refs/heads/' + config.branch]), 'Fetch remote changes');
+  await step('fetch');
+  succeeded(await git(root, config, ['fetch', '--no-tags', transport, 'refs/heads/' + config.branch], network()), 'Fetch remote changes');
   await tree(root, config, 'FETCH_HEAD');
   // Native fetch may itself update origin's tracking ref, including when its
   // URL was supplied directly. Compare-and-swap against that post-fetch value.
@@ -190,8 +195,9 @@ export async function gitTransfer(root, config) {
     succeeded(merge, 'Merge remote changes');
   }
   const commit = succeeded(await git(root, config, ['rev-parse', 'HEAD']), 'Read synchronized commit').trim();
-  if (!pullOnly) succeeded(await git(root, config, ['push', transport, 'HEAD:refs/heads/' + config.branch]), 'Push Library changes');
-  const remote = succeeded(await git(root, config, ['ls-remote', '--exit-code', transport, 'refs/heads/' + config.branch]), 'Verify remote commit').trim().split(/\s+/)[0];
+  if (!pullOnly) { await step('push'); succeeded(await git(root, config, ['push', transport, 'HEAD:refs/heads/' + config.branch], network()), 'Push Library changes'); }
+  await step('verify');
+  const remote = succeeded(await git(root, config, ['ls-remote', '--exit-code', transport, 'refs/heads/' + config.branch], network()), 'Verify remote commit').trim().split(/\s+/)[0];
   if (remote !== commit) fail('UNCERTAIN', 'Remote advanced during verification; fetch/reconcile on the next cycle');
   if (config.existingCheckout) {
     // Push can also record the verified tracking value itself. Keep the guard
