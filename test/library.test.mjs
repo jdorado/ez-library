@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { locked, put, operation, settings, defaults, validateSettings, list, digest, readRange, MAX_READ_BYTES, hash } from '../src/store.mjs';
 import { qmdEnvironment, putFromFile } from '../src/cli.mjs';
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 
 const cli = new URL('../bin/ez-library.mjs', import.meta.url).pathname;
 async function fixture(t) {
@@ -328,7 +329,8 @@ test('put and replace that cannot get the writer lock say so as JSON on stdout, 
   assert.equal(retried.status, 0, retried.stderr); assert.equal(JSON.parse(retried.stdout).data.state, 'stored');
 });
 
-test('put --from-file streams a workspace file above 1 MiB and refuses unsafe sources before writing', async t => {
+const linux = existsSync('/proc/self/fd') ? {} : { skip: '--from-file needs /proc/self/fd (Linux); the plugin runs in a Linux container' };
+test('put --from-file streams a workspace file above 1 MiB and refuses unsafe sources before writing', linux, async t => {
   const root = await fixture(t), workspace = await fs.realpath(await fixture(t)), outside = await fs.realpath(await fixture(t));
   const env = { ...process.env, EZ_LIBRARY_STATE: root, EZ_AGENT_WORKSPACE: workspace };
   const invoke = (args, { stdin, environment = env } = {}) => spawnSync(process.execPath, [cli, 'put', '--expected', 'new', ...args], { input: stdin, env: environment, encoding: 'utf8' });
@@ -360,7 +362,7 @@ test('put --from-file streams a workspace file above 1 MiB and refuses unsafe so
   assert.equal(viaStdin.status, 0, viaStdin.stderr); assert.equal(JSON.parse(viaStdin.stdout).data.sha256, hash('hello'));
 });
 
-test('put --from-file does not read stdin and returns with an open, silent pipe', async t => {
+test('put --from-file does not read stdin and returns with an open, silent pipe', linux, async t => {
   const root = await fixture(t), workspace = await fs.realpath(await fixture(t));
   await fs.writeFile(path.join(workspace, 'f.txt'), 'abc');
   const child = spawn(process.execPath, [cli, 'put', '--path', 'f.txt', '--expected', 'new', '--key', 'ff:p', '--from-file', path.join(workspace, 'f.txt')],
@@ -371,7 +373,7 @@ test('put --from-file does not read stdin and returns with an open, silent pipe'
   assert.equal(status, 0); assert.equal(JSON.parse(out).data.sha256, hash('abc'));
 });
 
-test('put --from-file refuses a path whose directory is swapped around the open, and stores nothing', async t => {
+test('put --from-file refuses a path whose directory is swapped around the open, and stores nothing', linux, async t => {
   const root = await fixture(t), workspace = await fs.realpath(await fixture(t)), outside = await fs.realpath(await fixture(t));
   process.env.EZ_AGENT_WORKSPACE = workspace; t.after(() => { delete process.env.EZ_AGENT_WORKSPACE; });
   await fs.mkdir(path.join(workspace, 'd')); await fs.mkdir(path.join(outside, 'd'));
@@ -380,10 +382,23 @@ test('put --from-file refuses a path whose directory is swapped around the open,
   const swap = () => fs.rename(dir, away).then(() => fs.symlink(path.join(outside, 'd'), dir));
   const revert = () => fs.rm(dir).then(() => fs.rename(away, dir));
   const options = n => ({ key: `race:${n}`, expected: 'new' });
+  const into = () => fs.rm(dir).then(() => fs.mkdir(dir)).then(() => fs.writeFile(inner, 'inside'));
   await assert.rejects(putFromFile(root, 'a', inner, options(1), { beforeOpen: swap }), code('UNSAFE_PATH'));
   await revert();
   await assert.rejects(putFromFile(root, 'b', inner, options(2), { beforeOpen: swap, afterOpen: revert }), code('UNSAFE_PATH'));
+  // symlink at the open, then a real directory (and again a symlink if the path were read by name once more)
+  await assert.rejects(putFromFile(root, 'd', inner, options(4), { beforeOpen: swap, afterOpen: into }), code('UNSAFE_PATH'));
+  await fs.rm(dir, { recursive: true, force: true }); await fs.rename(away, dir).catch(() => {});
   assert.equal((await fs.stat(dir)).isDirectory() && !(await fs.lstat(dir)).isSymbolicLink(), true);
   assert.deepEqual(await fs.readdir(path.join(root, 'files')).catch(() => []), []);
   assert.equal((await putFromFile(root, 'c', inner, options(3))).sha256, hash('inside'));
+});
+
+test('put --from-file refuses cleanly where /proc/self/fd is absent', async t => {
+  const root = await fixture(t), workspace = await fs.realpath(await fixture(t));
+  process.env.EZ_AGENT_WORKSPACE = workspace; t.after(() => { delete process.env.EZ_AGENT_WORKSPACE; });
+  await fs.writeFile(path.join(workspace, 'f'), 'x');
+  await assert.rejects(putFromFile(root, 'f', path.join(workspace, 'f'), { key: 'np:1', expected: 'new' }, { procFd: path.join(workspace, 'no-proc') }),
+    error => error.code === 'INVALID' && /Linux/.test(error.message));
+  assert.deepEqual(await fs.readdir(path.join(root, 'files')).catch(() => []), []);
 });

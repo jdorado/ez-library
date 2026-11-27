@@ -110,14 +110,16 @@ async function readSettingsInput() {
 }
 // A file larger than the host's 1 MiB stdin cap arrives by its path in the read-only workspace mount.
 // Core names that workspace in EZ_AGENT_WORKSPACE; the root is never guessed. Stdin is not read.
-// The check applies to the file actually opened: after the open the path is resolved again and must
-// still be inside the workspace and name the same device and inode as the open handle.
-// `hooks` lets a test change the tree between the steps; the CLI passes none.
+// The check applies to the open handle, not to a name: after the open the kernel's own path for that
+// descriptor (/proc/self/fd/N) must be a regular file inside the workspace, so no later rename or symlink
+// swap can change the answer. The runtime is a Linux container; without /proc/self/fd the flag is refused.
+// `hooks` lets a test change the tree between the steps or move the probe; the CLI passes none.
 const inside = (root, file) => file.startsWith(root + path.sep);
 async function workspaceFile(from, hooks = {}) {
-  const workspace = process.env.EZ_AGENT_WORKSPACE;
+  const workspace = process.env.EZ_AGENT_WORKSPACE, procFd = hooks.procFd ?? '/proc/self/fd';
   if (!workspace) fail('INVALID', '--from-file needs the host to provide the workspace root (EZ_AGENT_WORKSPACE), which this host does not; send the file on stdin (at most 1 MiB through the host) or upgrade the host');
   if (!path.isAbsolute(from)) fail('INVALID', '--from-file must be an absolute path inside the workspace');
+  if (!await fs.stat(procFd).then(stat => stat.isDirectory(), () => false)) fail('INVALID', '--from-file needs /proc/self/fd, which exists only on Linux (the plugin runs in a Linux container); send the file on stdin instead');
   const unreadable = () => fail('INVALID', '--from-file cannot be read inside the workspace');
   let root, real;
   try { root = await fs.realpath(workspace); real = await fs.realpath(from); } catch { unreadable(); }
@@ -127,11 +129,10 @@ async function workspaceFile(from, hooks = {}) {
   try { handle = await fs.open(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch { unreadable(); }
   try {
     await hooks.afterOpen?.();
-    const opened = await handle.stat({ bigint: true });
-    let again, now;
-    try { again = await fs.realpath(real); now = await fs.stat(again, { bigint: true }); } catch { unreadable(); }
-    if (!inside(root, again) || now.dev !== opened.dev || now.ino !== opened.ino) fail('UNSAFE_PATH', '--from-file changed while it was opened or leaves the workspace');
-    if (!opened.isFile()) fail('UNSAFE_PATH', '--from-file must be a regular file');
+    let opened;
+    try { opened = await fs.realpath(`${procFd}/${handle.fd}`); } catch { unreadable(); }
+    if (!inside(root, opened)) fail('UNSAFE_PATH', '--from-file must stay inside the workspace');
+    if (!(await handle.stat()).isFile()) fail('UNSAFE_PATH', '--from-file must be a regular file');
     return handle;
   } catch (error) { await handle.close(); throw error; }
 }
