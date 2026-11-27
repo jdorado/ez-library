@@ -16,6 +16,10 @@ export const MAX_FILE_BYTES = 512 * 1024 * 1024;
 export const MAX_READ_BYTES = 512 * 1024;
 export const MAX_REPLACE_BYTES = 256 * 1024;
 const MAX_TEXT_BYTES = 8 * 1024 * 1024;
+// Library content (files/) is read and edited by the agent's executor, which is not the Library's user:
+// owner and group read/write, nothing for others. Under a default ACL the group bits become the ACL mask,
+// so 0600 (or 0700 for a directory) would silently mask every named-user entry to no access. State stays 0600/0700.
+export const CONTENT_MODE = 0o660, CONTENT_DIR_MODE = 0o770;
 export const defaults = () => ({ schemaVersion: 1, storage: { mode: 'local' }, backup: { mode: 'off' } });
 
 function keys(value, allowed) {
@@ -60,13 +64,14 @@ export async function rootDir(root, create = false) {
   if (!stat.isDirectory() || stat.isSymbolicLink()) fail('UNSAFE_PATH', 'State must be a real private directory');
   return fs.realpath(root);
 }
+// makeParents creates private parents; a number sets their mode instead (content directories).
 export async function safePath(root, relative, makeParents = false) {
   if (typeof relative !== 'string' || !relative || relative.length > 1024 || /[\\\x00-\x1f\x7f]/.test(relative) || relative.split('/').some(p => !p || p.startsWith('.'))) fail('UNSAFE_PATH', 'Use a relative path without hidden, empty or parent components');
   const parts = relative.split('/');
   let target = root;
   for (let i = 0; i < parts.length; i++) {
     target = path.join(target, parts[i]);
-    if (makeParents && i < parts.length - 1) await fs.mkdir(target, { mode: 0o700 }).catch(e => { if (e.code !== 'EEXIST') throw e; });
+    if (makeParents && i < parts.length - 1) await fs.mkdir(target, { mode: typeof makeParents === 'number' ? makeParents : 0o700 }).catch(e => { if (e.code !== 'EEXIST') throw e; });
     const st = await fs.lstat(target).catch(e => { if (e.code === 'ENOENT') return null; throw e; });
     if (st && (st.isSymbolicLink() || (i < parts.length - 1 ? !st.isDirectory() : !st.isFile()))) fail('UNSAFE_PATH', 'Symlinks and special files are unsupported');
   }
@@ -204,9 +209,9 @@ export async function readRange(file, { offset, length, expected }) {
   } finally { await handle.close(); }
 }
 async function current(file) { return digest(file).catch(e => { if (e.code === 'ENOENT') return null; throw e; }); }
-export async function atomic(file, data) {
+export async function atomic(file, data, mode = 0o600) {
   const temp = `${file}.${randomUUID()}.tmp`;
-  try { await fs.writeFile(temp, data, { mode: 0o600, flag: 'wx' }); await fs.rename(temp, file); }
+  try { await fs.writeFile(temp, data, { mode, flag: 'wx' }); await fs.rename(temp, file); }
   finally { await fs.rm(temp, { force: true }); }
 }
 const jsonBytes = value => Buffer.from(JSON.stringify(value, null, 2) + '\n');
@@ -229,7 +234,7 @@ export async function put(root, relative, input, { key, expected, kind = 'file',
     const receiptFile = operationPath(root, key);
     await safePath(root, path.relative(root, receiptFile));
     if (kind === 'file' && (typeof relative !== 'string' || !relative)) fail('INVALID', 'Supply a relative file path');
-    const target = await safePath(root, kind === 'settings' ? 'settings.json' : 'files/' + relative, true);
+    const target = await safePath(root, kind === 'settings' ? 'settings.json' : 'files/' + relative, CONTENT_DIR_MODE);
     // files may be a separate bind mount: stage on the destination filesystem.
     const temp = path.join(path.dirname(target), '.ez-library-put-' + randomUUID() + '.tmp');
     let bytes = 0; const sha = createHash('sha256');
@@ -238,7 +243,7 @@ export async function put(root, relative, input, { key, expected, kind = 'file',
         bytes += chunk.length;
         if (bytes > maxBytes) return cb(new LibraryError('TOO_LARGE', `Input exceeds ${maxBytes} bytes`));
         sha.update(chunk); cb(null, chunk);
-      } }), createWriteStream(temp, { flags: 'wx', mode: 0o600 }));
+      } }), createWriteStream(temp, { flags: 'wx', mode: kind === 'file' ? CONTENT_MODE : 0o600 }));
       const request = { kind, path: kind === 'settings' ? 'settings.json' : relative, bytes, sha256: sha.digest('hex'), expected,
         ...(source ? { source } : {}) };
       const oldReceipt = await fs.readFile(receiptFile, 'utf8').then(JSON.parse).catch(e => { if (e.code === 'ENOENT') return null; throw e; });
@@ -342,7 +347,7 @@ export async function replaceText(root, relative, replacement, { key } = {}) {
     await fs.copyFile(target, history, constants.COPYFILE_EXCL).catch(error => { if (error.code !== 'EEXIST') throw error; });
     await fs.chmod(history, 0o600);
     await atomic(receiptFile, jsonBytes(request));
-    await atomic(target, next);
+    await atomic(target, next, CONTENT_MODE);
     const after = await replacementView(root, request);
     if (after.state !== 'stored' || after.sha256 !== hash(next)) fail('UNCERTAIN', 'Replacement readback differs; inspect operation before retry');
     return { ...after, replay: false };
@@ -354,7 +359,7 @@ export async function organize(root, { path: relative, to, expected, key }) {
   if (relative === 'LIBRARY_SYNC_ACCESS' || to === 'LIBRARY_SYNC_ACCESS') fail('INVALID', 'The sync access marker is reserved');
   return locked(root, async root => {
     const source = await safePath(root, 'files/' + relative);
-    const target = to === undefined ? null : await safePath(root, 'files/' + to, true);
+    const target = to === undefined ? null : await safePath(root, 'files/' + to, CONTENT_DIR_MODE);
     if (target === source) fail('INVALID', 'Source and destination must differ');
     const receipt = { kind: target ? 'move' : 'remove', path: relative, ...(target ? { to } : {}), expected };
     const file = await safePath(root, path.relative(root, operationPath(root, key)));

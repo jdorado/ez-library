@@ -29,7 +29,7 @@ test('scoped replacements preserve interleaved writers, exact bytes and replay',
   assert.equal((await replaceText(root, 'runs/day.md', a, { key: 'a' })).replay, true);
   assert.equal(await read(root), expected);
   assert.equal(await fs.readFile(path.join(root, 'history', hash(initial)), 'utf8'), initial);
-  assert.equal((await fs.stat(path.join(root, 'files/runs/day.md'))).mode & 0o777, 0o600);
+  assert.equal((await fs.stat(path.join(root, 'files/runs/day.md'))).mode & 0o047, 0o040); // group-readable, nothing for others
   assert.equal('before' in await operation(root, 'a'), false);
   // A changed owning block does not become a stale overwrite on replay.
   await replaceText(root, 'runs/day.md', { before: a.after, after: a.after + 'new progress\r\n' }, { key: 'a2' });
@@ -87,4 +87,21 @@ test('replace CLI uses bounded JSON, not shell or regex interpretation', async t
   assert.equal(run('{').status, 2);
   assert.equal(run(Buffer.from([255])).status, 2);
   assert.equal(run(' '.repeat(MAX_REPLACE_BYTES + 1)).status, 2);
+});
+
+test('content files and directories are group read/write for the executor; state stays private', async t => {
+  // A default ACL on the content directory turns the group bits into its mask, so a 0600 file hides every
+  // named-user ACL entry (the agent's executor) from its own workspace. Keep the creation mode, whatever the umask.
+  const previous = process.umask(0); t.after(() => process.umask(previous));
+  const root = await fixture(t);
+  const mode = file => fs.stat(path.join(root, file)).then(s => s.mode & 0o777);
+  assert.equal(await mode('files/runs/day.md'), 0o660);
+  assert.equal(await mode('files/runs'), 0o770);
+  await replaceText(root, 'runs/day.md', a, { key: 'mode-a' });
+  assert.equal(await mode('files/runs/day.md'), 0o660);
+  await replaceText(root, 'runs/day.md', b, { key: 'mode-b' });
+  const stateFiles = [...await fs.readdir(path.join(root, 'history')).then(n => n.map(x => 'history/' + x)),
+    ...await fs.readdir(path.join(root, 'operations')).then(n => n.map(x => 'operations/' + x))];
+  assert.ok(stateFiles.length >= 3);
+  for (const file of stateFiles) assert.equal(await mode(file), 0o600, file);
 });

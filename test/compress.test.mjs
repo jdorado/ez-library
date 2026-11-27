@@ -27,7 +27,7 @@ test('gzip keeps large binary data inside Library and records source/target proo
   assert.equal(result.source.sha256, hash(data));
   assert.equal(result.source.bytes, data.length);
   assert.equal(result.state, 'stored');
-  assert.equal((await fs.stat(path.join(root, 'files', request.to))).mode & 0o777, 0o600);
+  assert.equal((await fs.stat(path.join(root, 'files', request.to))).mode & 0o047, 0o040); // group-readable, nothing for others
   assert.deepEqual(await fs.readFile(path.join(root, 'files', request.path)), data);
   assert.equal((await operation(root, request.key)).state, 'stored');
   assert.equal((await gzipFile(root, request)).replay, true);

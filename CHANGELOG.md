@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-beta.22
+
+- Files and directories the Library creates under `files/` (`put`, `gzip`, `replace`, `organize` destinations) are now group read/write (`0660`/`0770`) instead of `0600`/`0700`. On a host where the content directory carries a default ACL for another account (the Stocks VM grants the agent's executor `ezrelay` this way), a `0600` file or `0700` directory made the ACL mask empty, so the executor got `Permission denied` on every new or rewritten file until the ACL was repaired by hand. Others still get nothing; receipts, history, locks and other state stay `0600`/`0700`.
+
 ## 0.1.0-beta.21
 
 - Git sync can no longer hang forever holding the writer lock. The SSH command adds `ServerAliveInterval=15` and `ServerAliveCountMax=4`, and every remote-touching Git call (fetch, push, ls-remote, in sync, text mirror and adoption) is bounded at 5 minutes: on expiry the child is stopped (SIGTERM, then SIGKILL after 5 seconds) and the cycle fails `UNAVAILABLE`, so the lock is released and the next interval retries. Before this, a connection that stalled after connect left `sync-status` at `syncing` and every writer `BUSY` until the service was restarted (#53).
