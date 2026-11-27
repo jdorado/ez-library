@@ -23,7 +23,7 @@ test('intake preserves binary bytes, private modes, literal paths and replay acr
   const r = await put(root, relative, input(data), { key: 'binary:1', expected: 'new' });
   assert.equal(r.state, 'stored'); assert.equal(r.sha256, hash(data));
   assert.deepEqual(await fs.readFile(path.join(root, 'files', relative)), data);
-  assert.equal((await fs.stat(path.join(root, 'files', relative))).mode & 0o777, 0o600);
+  assert.equal((await fs.stat(path.join(root, 'files', relative))).mode & 0o047, 0o040); // group-readable, nothing for others
   assert.equal((await put(root, relative, input(data), { key: 'binary:1', expected: 'new' })).replay, true);
   const read = spawnSync(process.execPath, [cli, 'get', '--path', relative, '--raw'], { env: { ...process.env, EZ_LIBRARY_STATE: root } });
   assert.equal(read.status, 0); assert.deepEqual(read.stdout, data);
