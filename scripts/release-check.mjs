@@ -17,6 +17,8 @@ for(const [alias,command] of Object.entries(manifest.commands||{})) {
 }
 assert.deepEqual(manifest.commands.library?.exposure,expectedExposure,'library exposure must conservatively describe its broad read/write/sync surface');
 for(const alias of ['library-file','library-query']) assert.deepEqual(manifest.commands[alias]?.exposure,readOnlyExposure,`${alias} must remain read-only`);
+const deployment=JSON.parse(readFileSync('ez-deployment.json','utf8'));
+assert.equal(deployment.services.library?.workspace,true,'The library service must mount the agent workspace read-only for put --from-file');
 const [pack]=JSON.parse(execFileSync('npm',['pack','--dry-run','--ignore-scripts','--json'],{encoding:'utf8'}));
 const names=pack.files.map(f=>f.path);
 for(const required of ['LICENSE','README.md','SECURITY.md','CONTRIBUTING.md','CHANGELOG.md','THIRD_PARTY_NOTICES.md','Dockerfile','.dockerignore','docker/pnpm-lock.yaml']) assert(names.includes(required),`Missing ${required}`);

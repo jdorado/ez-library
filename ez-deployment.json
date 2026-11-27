@@ -6,6 +6,7 @@
       "volumes": {
         "data": "/state"
       },
+      "workspace": true,
       "healthcheck": [
         "node",
         "/app/bin/ez-library.mjs",

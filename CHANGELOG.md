@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `put --from-file ABSOLUTE_PATH` writes a file above the host's 1 MiB stdin cap: the service now declares `workspace: true` (read-only agent workspace) and the plugin streams the file from there. The path must be absolute and resolve to a regular file inside the workspace root named by `EZ_AGENT_WORKSPACE`; a relative or outside path, a directory, an unreadable file, a symlink leaving the workspace, content also on stdin, or a host that does not set the variable fail with exit 2 before anything is written. `--expected`, `--key`, the writer lock, the receipt and the 512 MiB limit are unchanged. Reads of large files use `get --offset/--length`; the 1 MiB limit applies to stdin and command output. Requires a core that sets `EZ_AGENT_WORKSPACE` (jdorado/ez-agents#390); the service now mounts the workspace, so installing needs the manager's normal activation. Closes #58.
+
 ## 0.1.0-beta.23
 
 - `put` and `replace` that wait out the writer lock (60 seconds, including a running sync) now fail `BUSY` as JSON on stdout with `written: false` and, while a live writer or sync holds the lock, `retryAfterSeconds`, exit 3. Nothing was written and the same `--key` can be retried. Other commands keep errors on stderr.

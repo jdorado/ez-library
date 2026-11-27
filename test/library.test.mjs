@@ -326,3 +326,35 @@ test('put and replace that cannot get the writer lock say so as JSON on stdout, 
   const retried = run(root, ['put', '--path', 'a.md', '--expected', 'new', '--key', 'busy:1'], 'data');
   assert.equal(retried.status, 0, retried.stderr); assert.equal(JSON.parse(retried.stdout).data.state, 'stored');
 });
+
+test('put --from-file streams a workspace file above 1 MiB and refuses unsafe sources before writing', async t => {
+  const root = await fixture(t), workspace = await fs.realpath(await fixture(t)), outside = await fs.realpath(await fixture(t));
+  const env = { ...process.env, EZ_LIBRARY_STATE: root, EZ_AGENT_WORKSPACE: workspace };
+  const invoke = (args, { stdin, environment = env } = {}) => spawnSync(process.execPath, [cli, 'put', '--expected', 'new', ...args], { input: stdin, env: environment, encoding: 'utf8' });
+  const data = Buffer.alloc(3 * 1024 * 1024 + 11); for (let i = 0; i < data.length; i++) data[i] = (i * 31) % 251;
+  const big = path.join(workspace, 'big.bin'); await fs.writeFile(big, data);
+  const ok = invoke(['--path', 'big/a.bin', '--key', 'ff:1', '--from-file', big]);
+  assert.equal(ok.status, 0, ok.stderr); const receipt = JSON.parse(ok.stdout).data;
+  assert.equal(receipt.state, 'stored'); assert.equal(receipt.bytes, data.length); assert.equal(receipt.sha256, hash(data));
+  assert.deepEqual(await fs.readFile(path.join(root, 'files/big/a.bin')), data);
+  assert.equal((await digest(path.join(root, 'files/big/a.bin'))).sha256, hash(data));
+  const link = path.join(workspace, 'leaves'); await fs.symlink(outside, link);
+  await fs.writeFile(path.join(outside, 'secret'), 'x'); await fs.symlink(path.join(outside, 'secret'), path.join(workspace, 'out-link'));
+  await fs.mkdir(path.join(workspace, 'dir')); await fs.writeFile(path.join(workspace, 'locked'), 'x'); await fs.chmod(path.join(workspace, 'locked'), 0);
+  const refusals = {
+    relative: [['--from-file', 'big.bin']], outside: [['--from-file', path.join(outside, 'secret')]],
+    directory: [['--from-file', path.join(workspace, 'dir')]], 'symlink out': [['--from-file', path.join(workspace, 'out-link')]],
+    'dir symlink out': [['--from-file', path.join(link, 'secret')]], missing: [['--from-file', path.join(workspace, 'absent')]],
+    'both sources': [['--from-file', big], { stdin: 'data' }], unset: [['--from-file', big], { environment: { ...env, EZ_AGENT_WORKSPACE: '' } }],
+    ...(process.getuid?.() === 0 ? {} : { unreadable: [['--from-file', path.join(workspace, 'locked')]] }),
+  };
+  let n = 0;
+  for (const [name, [flag, options]] of Object.entries(refusals)) {
+    const r = invoke(['--path', `refused/${n}.bin`, '--key', `ff:r${n++}`, ...flag], options);
+    assert.equal(r.status, 2, `${name}: ${r.stdout}${r.stderr}`); assert.equal(JSON.parse(r.stderr).ok, false, name);
+  }
+  assert.deepEqual(await fs.readdir(path.join(root, 'files')), ['big']);
+  assert.match(invoke(['--path', 'x', '--key', 'ff:u', '--from-file', big], { environment: { ...env, EZ_AGENT_WORKSPACE: '' } }).stderr, /stdin/);
+  const viaStdin = invoke(['--path', 'small.txt', '--key', 'ff:s'], { stdin: 'hello' });
+  assert.equal(viaStdin.status, 0, viaStdin.stderr); assert.equal(JSON.parse(viaStdin.stdout).data.sha256, hash('hello'));
+});
