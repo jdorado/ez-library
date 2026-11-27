@@ -33,9 +33,9 @@ Local library files, QMD retrieval, and persistence settings.
   put --path RELATIVE --expected HASH|new --key KEY < file
   put --path RELATIVE --expected HASH|new --key KEY --from-file ABSOLUTE_WORKSPACE_PATH
                                   Same write from a file in the agent workspace (read-only mount),
-                                  for files above the host's 1 MiB stdin cap; exactly one source:
-                                  a file path with data on stdin, a relative or outside path, a
-                                  directory or a symlink out of the workspace is refused first
+                                  for files above the host's 1 MiB stdin cap. The file is the only
+                                  source; stdin is ignored. A relative or outside path, a directory
+                                  or a symlink out of the workspace is refused before any write
                                   Waits up to 60 s for the writer lock (or a running sync).
                                   BUSY: JSON on stdout, written:false (retryAfterSeconds while a live writer holds it); the same --key may be retried
   replace --path RELATIVE --key KEY < replacement.json
@@ -109,21 +109,36 @@ async function readSettingsInput() {
   return validateSettings(parsed);
 }
 // A file larger than the host's 1 MiB stdin cap arrives by its path in the read-only workspace mount.
-// Core names that workspace in EZ_AGENT_WORKSPACE; the root is never guessed.
-async function workspaceFile(from) {
+// Core names that workspace in EZ_AGENT_WORKSPACE; the root is never guessed. Stdin is not read.
+// The check applies to the file actually opened: after the open the path is resolved again and must
+// still be inside the workspace and name the same device and inode as the open handle.
+// `hooks` lets a test change the tree between the steps; the CLI passes none.
+const inside = (root, file) => file.startsWith(root + path.sep);
+async function workspaceFile(from, hooks = {}) {
   const workspace = process.env.EZ_AGENT_WORKSPACE;
   if (!workspace) fail('INVALID', '--from-file needs the host to provide the workspace root (EZ_AGENT_WORKSPACE), which this host does not; send the file on stdin (at most 1 MiB through the host) or upgrade the host');
-  if (!process.stdin.isTTY) for await (const chunk of process.stdin) if (chunk.length) fail('INVALID', 'Give the content on stdin or with --from-file, not both');
   if (!path.isAbsolute(from)) fail('INVALID', '--from-file must be an absolute path inside the workspace');
+  const unreadable = () => fail('INVALID', '--from-file cannot be read inside the workspace');
   let root, real;
-  try { root = await fs.realpath(workspace); real = await fs.realpath(from); }
-  catch { fail('INVALID', '--from-file cannot be read inside the workspace'); }
-  if (!real.startsWith(root + path.sep)) fail('UNSAFE_PATH', '--from-file must stay inside the workspace');
+  try { root = await fs.realpath(workspace); real = await fs.realpath(from); } catch { unreadable(); }
+  if (!inside(root, real)) fail('UNSAFE_PATH', '--from-file must stay inside the workspace');
+  await hooks.beforeOpen?.();
   let handle;
-  try { handle = await fs.open(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
-  catch { fail('INVALID', '--from-file cannot be read inside the workspace'); }
-  if (!(await handle.stat()).isFile()) { await handle.close(); fail('UNSAFE_PATH', '--from-file must be a regular file'); }
-  return handle;
+  try { handle = await fs.open(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch { unreadable(); }
+  try {
+    await hooks.afterOpen?.();
+    const opened = await handle.stat({ bigint: true });
+    let again, now;
+    try { again = await fs.realpath(real); now = await fs.stat(again, { bigint: true }); } catch { unreadable(); }
+    if (!inside(root, again) || now.dev !== opened.dev || now.ino !== opened.ino) fail('UNSAFE_PATH', '--from-file changed while it was opened or leaves the workspace');
+    if (!opened.isFile()) fail('UNSAFE_PATH', '--from-file must be a regular file');
+    return handle;
+  } catch (error) { await handle.close(); throw error; }
+}
+export async function putFromFile(root, relative, from, options, hooks) {
+  const source = await workspaceFile(from, hooks);
+  try { return await put(root, relative, source.createReadStream({ autoClose: false }), options); }
+  finally { await source.close(); }
 }
 export async function main(argv = process.argv.slice(2)) {
   const command = argv[0];
@@ -235,10 +250,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (command === 'put') {
       if (!opts.path) fail('INVALID', 'Supply --path');
       if (opts['from-file'] === undefined) { emit(await put(root, opts.path, process.stdin, { key: opts.key, expected: opts.expected })); return; }
-      const source = await workspaceFile(opts['from-file']);
-      try { emit(await put(root, opts.path, source.createReadStream({ autoClose: false }), { key: opts.key, expected: opts.expected })); }
-      finally { await source.close(); }
-      return;
+      emit(await putFromFile(root, opts.path, opts['from-file'], { key: opts.key, expected: opts.expected })); return;
     }
     if (command === 'gzip') { emit(await gzipFile(root, opts)); return; }
     if (command === 'replace') {

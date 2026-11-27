@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { spawnSync } from 'node:child_process';
 import { locked, put, operation, settings, defaults, validateSettings, list, digest, readRange, MAX_READ_BYTES, hash } from '../src/store.mjs';
-import { qmdEnvironment } from '../src/cli.mjs';
+import { qmdEnvironment, putFromFile } from '../src/cli.mjs';
+import { spawn } from 'node:child_process';
 
 const cli = new URL('../bin/ez-library.mjs', import.meta.url).pathname;
 async function fixture(t) {
@@ -345,7 +346,7 @@ test('put --from-file streams a workspace file above 1 MiB and refuses unsafe so
     relative: [['--from-file', 'big.bin']], outside: [['--from-file', path.join(outside, 'secret')]],
     directory: [['--from-file', path.join(workspace, 'dir')]], 'symlink out': [['--from-file', path.join(workspace, 'out-link')]],
     'dir symlink out': [['--from-file', path.join(link, 'secret')]], missing: [['--from-file', path.join(workspace, 'absent')]],
-    'both sources': [['--from-file', big], { stdin: 'data' }], unset: [['--from-file', big], { environment: { ...env, EZ_AGENT_WORKSPACE: '' } }],
+    unset: [['--from-file', big], { environment: { ...env, EZ_AGENT_WORKSPACE: '' } }],
     ...(process.getuid?.() === 0 ? {} : { unreadable: [['--from-file', path.join(workspace, 'locked')]] }),
   };
   let n = 0;
@@ -357,4 +358,32 @@ test('put --from-file streams a workspace file above 1 MiB and refuses unsafe so
   assert.match(invoke(['--path', 'x', '--key', 'ff:u', '--from-file', big], { environment: { ...env, EZ_AGENT_WORKSPACE: '' } }).stderr, /stdin/);
   const viaStdin = invoke(['--path', 'small.txt', '--key', 'ff:s'], { stdin: 'hello' });
   assert.equal(viaStdin.status, 0, viaStdin.stderr); assert.equal(JSON.parse(viaStdin.stdout).data.sha256, hash('hello'));
+});
+
+test('put --from-file does not read stdin and returns with an open, silent pipe', async t => {
+  const root = await fixture(t), workspace = await fs.realpath(await fixture(t));
+  await fs.writeFile(path.join(workspace, 'f.txt'), 'abc');
+  const child = spawn(process.execPath, [cli, 'put', '--path', 'f.txt', '--expected', 'new', '--key', 'ff:p', '--from-file', path.join(workspace, 'f.txt')],
+    { env: { ...process.env, EZ_LIBRARY_STATE: root, EZ_AGENT_WORKSPACE: workspace }, stdio: ['pipe', 'pipe', 'pipe'] });
+  const timer = setTimeout(() => child.kill('SIGKILL'), 20000); let out = '';
+  child.stdout.on('data', d => { out += d; });
+  const status = await new Promise(resolve => child.on('exit', resolve)); clearTimeout(timer);
+  assert.equal(status, 0); assert.equal(JSON.parse(out).data.sha256, hash('abc'));
+});
+
+test('put --from-file refuses a path whose directory is swapped around the open, and stores nothing', async t => {
+  const root = await fixture(t), workspace = await fs.realpath(await fixture(t)), outside = await fs.realpath(await fixture(t));
+  process.env.EZ_AGENT_WORKSPACE = workspace; t.after(() => { delete process.env.EZ_AGENT_WORKSPACE; });
+  await fs.mkdir(path.join(workspace, 'd')); await fs.mkdir(path.join(outside, 'd'));
+  const inner = path.join(workspace, 'd', 'f'); await fs.writeFile(inner, 'inside'); await fs.writeFile(path.join(outside, 'd', 'f'), 'secret');
+  const away = path.join(workspace, 'd.orig'), dir = path.join(workspace, 'd');
+  const swap = () => fs.rename(dir, away).then(() => fs.symlink(path.join(outside, 'd'), dir));
+  const revert = () => fs.rm(dir).then(() => fs.rename(away, dir));
+  const options = n => ({ key: `race:${n}`, expected: 'new' });
+  await assert.rejects(putFromFile(root, 'a', inner, options(1), { beforeOpen: swap }), code('UNSAFE_PATH'));
+  await revert();
+  await assert.rejects(putFromFile(root, 'b', inner, options(2), { beforeOpen: swap, afterOpen: revert }), code('UNSAFE_PATH'));
+  assert.equal((await fs.stat(dir)).isDirectory() && !(await fs.lstat(dir)).isSymbolicLink(), true);
+  assert.deepEqual(await fs.readdir(path.join(root, 'files')).catch(() => []), []);
+  assert.equal((await putFromFile(root, 'c', inner, options(3))).sha256, hash('inside'));
 });
