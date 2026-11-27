@@ -51,7 +51,7 @@ Refresh the appropriate QMD collection after saving derived text (`qmd update`);
 
 ## Onboarding and retrieval
 
-Choose the smallest authorized collection. Input files enter through stdin (`put --path notes/example.md --expected new --key stable-key < source.md`); no host workspace is mounted. Use `get --path ...` for current hashes and `get --raw` for exact bytes. Choose operation keys per logical write and retain them until its outcome is known. Updates require the latest hash; a conflict means re-read and reconsider the update, not force overwrite. `operation --key ...` reconciles current bytes after interruption.
+Choose the smallest authorized collection. Input files enter through stdin (`put --path notes/example.md --expected new --key stable-key < source.md`); no host workspace is mounted. Use `get --path ...` for current hashes and `get --raw` for exact bytes. Choose operation keys per logical write and retain them until its outcome is known. Updates require the latest hash; a conflict means re-read and reconsider the update, not force overwrite. `operation --key ...` reconciles current bytes after interruption; on a Git-bound Library it also says whether the remote has the write (`git.state` `pushed` with `git.commit`, or `pending` until the next sync). A `put` or `replace` that waited 60 seconds for the writer lock fails with JSON on stdout (`BUSY`, `written: false`, `retryAfterSeconds`); nothing was written and the same key can be retried.
 
 If exact raw output exceeds the executor allowance, read metadata, then call
 `get --path ... --offset 0 --length 524288 --expected SHA256`. Each response

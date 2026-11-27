@@ -13,10 +13,11 @@ import { indexStatus } from './indexer.mjs';
 import { embeddingStatus } from './embedding-client.mjs';
 import { addLibrary, selectLibrary, sources, searchLibraries } from './libraries.mjs';
 import { mirrorAdopt, mirrorStatus, mirrorPolicy } from './git-mirror.mjs';
-import { gitKey, gitAdopt, git } from './git-sync.mjs';
+import { gitKey, gitAdopt, git, remoteReceipt } from './git-sync.mjs';
 import { gzipFile } from './compress.mjs';
 
 const version = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url))).version;
+const RETRY_AFTER_SECONDS = 30;
 const emit = data => process.stdout.write(JSON.stringify({ ok: true, data }) + '\n');
 const help = `ez-library ${version}
 Local library files, QMD retrieval, and persistence settings.
@@ -30,8 +31,10 @@ Local library files, QMD retrieval, and persistence settings.
   settings                        Show settings and revision hash
   configure --expected HASH|new --key KEY < settings.json
   put --path RELATIVE --expected HASH|new --key KEY < file
+                                  Waits up to 60 s for the writer lock (or a running sync).
+                                  BUSY: JSON on stdout, written:false, retryAfterSeconds; the same --key may be retried
   replace --path RELATIVE --key KEY < replacement.json
-                                  Exact unique before/after text; preserve other bytes
+                                  Exact unique before/after text; preserve other bytes; same lock wait and BUSY as put
   gzip --path SOURCE --to DEST.gz --expected SOURCE_HASH --key KEY
                                   Compress inside Library; retain original
   get --path RELATIVE [--raw]      Metadata/hash, or exact binary stdout
@@ -40,7 +43,8 @@ Local library files, QMD retrieval, and persistence settings.
   file --library NAME -- RELATIVE  Original file bytes for channel delivery (20 MiB)
   pdf-text --path RELATIVE         Poppler text to stdout, page breaks retained
   list [--prefix TEXT] [--limit 100]
-  operation --key KEY             Recover write outcome from current bytes
+  operation --key KEY             Recover write outcome from current bytes; on a Git-bound
+                                  Library adds git:{state pushed|pending|unknown, commit}
   move --path SOURCE --to DEST --expected HASH --key KEY
   remove --path SOURCE --expected HASH --key KEY  Retain recoverable original
   qmd ...                        Native QMD CLI with private index/cache
@@ -99,10 +103,11 @@ async function readSettingsInput() {
   return validateSettings(parsed);
 }
 export async function main(argv = process.argv.slice(2)) {
+  const command = argv[0];
   try {
     if (!argv.length || argv[0] === '--help' || argv[0] === 'help') { process.stdout.write(help); return; }
     if (argv[0] === '--version') { process.stdout.write(version + '\n'); return; }
-    const [command, ...args] = argv;
+    const args = argv.slice(1);
     // Local help must not select a library, read state or consume write stdin.
     // Native provider flags remain untouched.
     if (!['qmd', 'git', 'rclone'].includes(command) && args.includes('--help')) { process.stdout.write(help); return; }
@@ -237,7 +242,11 @@ export async function main(argv = process.argv.slice(2)) {
       return;
     }
     await rootDir(root);
-    if (command === 'operation') { emit(await operation(root, opts.key)); return; }
+    if (command === 'operation') {
+      const view = await operation(root, opts.key), { config } = await syncStatus(root);
+      const receipt = config?.backend === 'git' ? await remoteReceipt(root, config, view) : null;
+      emit(receipt ? { ...view, git: receipt } : view); return;
+    }
     if (command === 'list') { emit(await list(root, opts.prefix, opts.limit === undefined ? 100 : Number(opts.limit))); return; }
     if (command === 'pdf-text') {
       if (!opts.path) fail('INVALID', 'Supply --path');
@@ -268,6 +277,9 @@ export async function main(argv = process.argv.slice(2)) {
     const code = error.code || (error instanceof SyntaxError ? 'INVALID' : 'UNAVAILABLE');
     const invalid = ['INVALID', 'UNSAFE_PATH', 'TOO_LARGE', 'KEY_REUSED'].includes(code) || code.startsWith('ERR_PARSE_ARGS');
     process.exitCode = invalid ? 2 : ['CONFLICT', 'BUSY'].includes(code) ? 3 : 4;
-    process.stderr.write(JSON.stringify({ ok: false, error: { code, message: error.message } }) + '\n');
+    // A write that waited out the lock reports on stdout, in the same shape as a result, and says nothing was written.
+    const busyWrite = code === 'BUSY' && ['put', 'replace'].includes(command);
+    const body = { code, message: error.message, ...(busyWrite ? { written: false, retryAfterSeconds: RETRY_AFTER_SECONDS } : {}) };
+    (busyWrite ? process.stdout : process.stderr).write(JSON.stringify({ ok: false, error: body }) + '\n');
   }
 }

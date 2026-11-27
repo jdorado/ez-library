@@ -5,8 +5,8 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { Readable } from 'node:stream';
-import { gitAdopt, gitTransfer, git, repositoryURL } from '../src/git-sync.mjs';
-import { locked, put, digest, organize, jsonBytes } from '../src/store.mjs';
+import { gitAdopt, gitTransfer, git, repositoryURL, remoteReceipt } from '../src/git-sync.mjs';
+import { locked, put, digest, organize, jsonBytes, operation } from '../src/store.mjs';
 import { syncPolicy, syncRun, syncStatus } from '../src/sync.mjs';
 
 async function setup(t) {
@@ -337,4 +337,50 @@ test('a bounded call that exits in time settles even while a grandchild still ho
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const result = await native(root, '/bin/sh', ['-c', 'sleep 2 & exit 0'], { timeout: 500 });
   assert.equal(result.code, 0);
+});
+
+test('a read by key says whether the remote holds the write and names the commit, with no network call', async t => {
+  const { root, remote, outside } = await setup(t);
+  const { config } = await gitAdopt(root, remote);
+  const saved = await put(root, 'agent.md', Readable.from(['# Agent\nSaffron notebook.']), { expected: 'new', key: 'receipt:put' });
+  const receipt = async key => remoteReceipt(root, config, await operation(root, key));
+  assert.deepEqual(await receipt('receipt:put'), { state: 'pending', commit: null });
+  // Break the remote: a read by key must still answer from local Git.
+  const url = (await git(root, config, ['remote', 'get-url', 'origin'])).stdout.trim();
+  await git(root, config, ['remote', 'set-url', 'origin', remote + '-gone']);
+  assert.deepEqual(await receipt('receipt:put'), { state: 'pending', commit: null });
+  await git(root, config, ['remote', 'set-url', 'origin', url]);
+  const result = await cycle(root, config);
+  const pushed = await receipt('receipt:put');
+  assert.equal(pushed.state, 'pushed');
+  assert.equal(pushed.commit, outside(['--git-dir', remote, 'log', '-n', '1', '--format=%H', 'main', '--', 'agent.md']).trim());
+  assert.equal(pushed.commit, result.commit);
+  // A newer local version is pending again, and a move or remove follows its own destination.
+  const next = await put(root, 'agent.md', Readable.from(['# Agent\nSecond.']), { expected: saved.sha256, key: 'receipt:edit' });
+  assert.equal((await receipt('receipt:edit')).state, 'pending');
+  await cycle(root, config);
+  assert.equal((await receipt('receipt:edit')).state, 'pushed');
+  await organize(root, { path: 'agent.md', to: 'moved/agent.md', expected: next.sha256, key: 'receipt:move' });
+  assert.equal((await receipt('receipt:move')).state, 'pending');
+  await cycle(root, config);
+  assert.equal((await receipt('receipt:move')).state, 'pushed');
+  await organize(root, { path: 'moved/agent.md', expected: next.sha256, key: 'receipt:remove' });
+  assert.equal((await receipt('receipt:remove')).state, 'pending');
+  await cycle(root, config);
+  assert.equal((await receipt('receipt:remove')).state, 'pushed');
+});
+
+test('operation --key adds the Git receipt only on a Git-bound Library', async t => {
+  const { base, root, remote } = await setup(t);
+  const cli = new URL('../bin/ez-library.mjs', import.meta.url).pathname;
+  const read = (state, key) => JSON.parse(execFileSync(process.execPath, [cli, 'operation', '--key', key], { encoding: 'utf8', env: { ...process.env, EZ_LIBRARY_STATE: state } })).data;
+  const plain = path.join(base, 'plain');
+  await put(plain, 'a.md', Readable.from(['a']), { expected: 'new', key: 'k' });
+  assert.equal(read(plain, 'k').git, undefined);
+  const { config } = await gitAdopt(root, remote);
+  await put(root, 'a.md', Readable.from(['a']), { expected: 'new', key: 'k' });
+  assert.equal(read(root, 'k').git.state, 'pending');
+  await cycle(root, config);
+  const after = read(root, 'k');
+  assert.equal(after.state, 'stored'); assert.equal(after.git.state, 'pushed'); assert.match(after.git.commit, /^[a-f0-9]{40}$/);
 });

@@ -152,6 +152,25 @@ export async function gitAdopt(root, repository, branch = 'main', stateRoot = ro
   });
 }
 
+// Whether the remote, as of the last fetch or push, holds what a write receipt names: the
+// file's bytes (or its absence after remove). Reads local Git only; never touches the network.
+// `commit` is the last remote commit that changed the path. pull-only and ignored files stay pending.
+export async function remoteReceipt(root, config, view) {
+  const present = ['stored', 'moved'].includes(view.state);
+  if (view.kind === 'settings' || !(present || view.state === 'removed')) return null;
+  const name = view.kind === 'move' ? view.to : view.path;
+  const read = async args => { const r = await git(root, config, args); return r.code === 0 ? r.stdout.trim() : null; };
+  const tip = await read(['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/' + config.branch]);
+  if (!tip) return { state: 'pending', commit: null };
+  const entry = await read(['ls-tree', tip, '--', name]);
+  const local = present ? await read(['hash-object', '--no-filters', '--', path.join(root, 'files', name)]) : null;
+  if (entry === null || (present && local === null)) return { state: 'unknown', commit: null };
+  const remote = /^\d+ blob ([a-f0-9]+)\t/.exec(entry)?.[1] ?? null;
+  if (present ? remote !== local : remote !== null) return { state: 'pending', commit: null };
+  const commit = await read(['log', '-n', '1', '--format=%H', tip, '--', name]);
+  return commit ? { state: 'pushed', commit } : { state: 'unknown', commit: null };
+}
+
 export async function gitTransfer(root, config, step = async () => {}) {
   if (!['two-way', 'pull-only'].includes(config.mode)) fail('INVALID', 'Use two-way or pull-only Git sync');
   const pullOnly = config.mode === 'pull-only';
