@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-beta.22
 
 - Files and directories the Library creates under `files/` (`put`, `gzip`, `replace`, `organize` destinations) are now group read/write (`0660`/`0770`) instead of `0600`/`0700`. On a host where the content directory carries a default ACL for another account (the Stocks VM grants the agent's executor `ezrelay` this way), a `0600` file or `0700` directory made the ACL mask empty, so the executor got `Permission denied` on every new or rewritten file until the ACL was repaired by hand. Others still get nothing; receipts, history, locks and other state stay `0600`/`0700`.
 
