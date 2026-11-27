@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { constants } from 'node:fs';
 import { fail, rootDir, locked, settings, validateSettings, put, operation, organize, list, safePath, digest, readRange, jsonBytes, defaults, replaceText, MAX_REPLACE_BYTES } from './store.mjs';
-import { syncPlan, syncAdopt, syncPolicy, syncRun, syncStatus } from './sync.mjs';
+import { syncConfig, syncPlan, syncAdopt, syncPolicy, syncRun, syncStatus } from './sync.mjs';
 import { rclone, environment } from './native.mjs';
 import { indexStatus } from './indexer.mjs';
 import { embeddingStatus } from './embedding-client.mjs';
@@ -32,7 +32,7 @@ Local library files, QMD retrieval, and persistence settings.
   configure --expected HASH|new --key KEY < settings.json
   put --path RELATIVE --expected HASH|new --key KEY < file
                                   Waits up to 60 s for the writer lock (or a running sync).
-                                  BUSY: JSON on stdout, written:false, retryAfterSeconds; the same --key may be retried
+                                  BUSY: JSON on stdout, written:false (retryAfterSeconds while a live writer holds it); the same --key may be retried
   replace --path RELATIVE --key KEY < replacement.json
                                   Exact unique before/after text; preserve other bytes; same lock wait and BUSY as put
   gzip --path SOURCE --to DEST.gz --expected SOURCE_HASH --key KEY
@@ -243,7 +243,7 @@ export async function main(argv = process.argv.slice(2)) {
     }
     await rootDir(root);
     if (command === 'operation') {
-      const view = await operation(root, opts.key), { config } = await syncStatus(root);
+      const view = await operation(root, opts.key), config = await syncConfig(root);
       const receipt = config?.backend === 'git' ? await remoteReceipt(root, config, view) : null;
       emit(receipt ? { ...view, git: receipt } : view); return;
     }
@@ -279,7 +279,7 @@ export async function main(argv = process.argv.slice(2)) {
     process.exitCode = invalid ? 2 : ['CONFLICT', 'BUSY'].includes(code) ? 3 : 4;
     // A write that waited out the lock reports on stdout, in the same shape as a result, and says nothing was written.
     const busyWrite = code === 'BUSY' && ['put', 'replace'].includes(command);
-    const body = { code, message: error.message, ...(busyWrite ? { written: false, retryAfterSeconds: RETRY_AFTER_SECONDS } : {}) };
+    const body = { code, message: error.message, ...(busyWrite ? { written: false, ...(error.retryable ? { retryAfterSeconds: RETRY_AFTER_SECONDS } : {}) } : {}) };
     (busyWrite ? process.stdout : process.stderr).write(JSON.stringify({ ok: false, error: body }) + '\n');
   }
 }

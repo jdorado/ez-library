@@ -312,7 +312,9 @@ test('put and replace that cannot get the writer lock say so as JSON on stdout, 
   assert.equal(blocked.status, 3); assert.equal(blocked.stderr.length, 0);
   const body = JSON.parse(blocked.stdout);
   assert.equal(body.ok, false); assert.equal(body.error.code, 'BUSY');
-  assert.equal(body.error.written, false); assert.equal(body.error.retryAfterSeconds, 30);
+  // A lock with no owner cannot clear by waiting: no retry hint, and the message says it needs attention.
+  assert.equal(body.error.written, false); assert.equal('retryAfterSeconds' in body.error, false);
+  assert.match(body.error.message, /needs attention/);
   await assert.rejects(fs.stat(path.join(root, 'files/a.md')), code('ENOENT'));
   assert.deepEqual(await fs.readdir(path.join(root, 'operations')).catch(() => []), []);
   const replace = run(root, ['replace', '--path', 'a.md', '--key', 'busy:2'], JSON.stringify({ before: 'x', after: 'y' }));

@@ -367,7 +367,42 @@ test('a read by key says whether the remote holds the write and names the commit
   await organize(root, { path: 'moved/agent.md', expected: next.sha256, key: 'receipt:remove' });
   assert.equal((await receipt('receipt:remove')).state, 'pending');
   await cycle(root, config);
-  assert.equal((await receipt('receipt:remove')).state, 'pushed');
+  assert.deepEqual(await receipt('receipt:remove'), { state: 'pushed', commit: null });
+  // A deletion made before this write is not this write's: only absence at the tip counts, and it has no commit.
+  await put(root, 'again.md', Readable.from(['x']), { expected: 'new', key: 'receipt:again' });
+  await cycle(root, config);
+  const again = await digest(path.join(root, 'files/again.md'));
+  await organize(root, { path: 'again.md', expected: again.sha256, key: 'receipt:again-remove' });
+  assert.deepEqual(await receipt('receipt:again-remove'), { state: 'pending', commit: null });
+});
+
+test('receipt paths are literal names, never pathspec patterns', async t => {
+  const { root, remote, outside } = await setup(t);
+  const { config } = await gitAdopt(root, remote);
+  const same = await fs.readFile(path.join(root, 'files/note0.md'));
+  const receipt = async key => remoteReceipt(root, config, await operation(root, key));
+  // Same bytes as the remote's note0.md, under names that a pathspec would resolve to it.
+  for (const [i, name] of [':note0.md', 'note[0].md', 'note?.md', '*.md'].entries()) {
+    await put(root, name, Readable.from([same]), { expected: 'new', key: `literal:${i}` });
+    assert.deepEqual(await receipt(`literal:${i}`), { state: 'pending', commit: null }, name);
+  }
+  await cycle(root, config);
+  for (const [i, name] of [':note0.md', 'note[0].md', 'note?.md', '*.md'].entries()) {
+    const done = await receipt(`literal:${i}`);
+    assert.equal(done.state, 'pushed', name);
+    assert.equal(done.commit, outside(['--literal-pathspecs', '--git-dir', remote, 'log', '-n', '1', '--format=%H', 'main', '--', name]).trim(), name);
+  }
+});
+
+test('operation --key does not depend on the sync status or text mirror files', async t => {
+  const { root, remote } = await setup(t);
+  const cli = new URL('../bin/ez-library.mjs', import.meta.url).pathname;
+  await gitAdopt(root, remote);
+  await put(root, 'a.md', Readable.from(['a']), { expected: 'new', key: 'k' });
+  await fs.writeFile(path.join(root, 'sync/text-mirror.json'), '{ not json');
+  await fs.writeFile(path.join(root, 'sync/status.json'), '{ not json');
+  const out = JSON.parse(execFileSync(process.execPath, [cli, 'operation', '--key', 'k'], { encoding: 'utf8', env: { ...process.env, EZ_LIBRARY_STATE: root } })).data;
+  assert.equal(out.state, 'stored'); assert.equal(out.git.state, 'pending');
 });
 
 test('operation --key adds the Git receipt only on a Git-bound Library', async t => {
