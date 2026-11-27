@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-beta.23
+
+- `put` and `replace` that wait out the writer lock (60 seconds, including a running sync) now fail `BUSY` as JSON on stdout with `written: false` and, while a live writer or sync holds the lock, `retryAfterSeconds`, exit 3. Nothing was written and the same `--key` can be retried. Other commands keep errors on stderr.
+- `operation --key` on a Git-bound Library adds `git: { state, commit }`: `pushed` with the last remote commit that changed the path (a removal is `pushed` without a commit once the path is absent at the remote tip), `pending`, or `unknown`. Paths are read literally. It reads local Git only; no network call.
+- Tests: a non-ASCII character (en dash, accents, emoji) survives `put` byte for byte, including when split across stream chunks and pipe buffers.
+
 ## 0.1.0-beta.22
 
 - Files and directories the Library creates under `files/` (`put`, `gzip`, `replace`, `organize` destinations) are now group read/write (`0660`/`0770`) instead of `0600`/`0700`. On a host where the content directory carries a default ACL for another account (the Stocks VM grants the agent's executor `ezrelay` this way), a `0600` file or `0700` directory made the ACL mask empty, so the executor got `Permission denied` on every new or rewritten file until the ACL was repaired by hand. Others still get nothing; receipts, history, locks and other state stay `0600`/`0700`.

@@ -283,3 +283,46 @@ test('local subcommand help succeeds before configuration or write intake',async
  }
  assert.deepEqual(await fs.readdir(root),[]);
 });
+
+const run = (root, args, stdin) => spawnSync(process.execPath, [cli, ...args], { input: stdin, env: { ...process.env, EZ_LIBRARY_STATE: root } });
+
+test('non-ASCII text survives put byte for byte, including a character split across stream chunks and pipe buffers', async t => {
+  const root = await fixture(t), dash = Buffer.from('–');
+  assert.deepEqual([...dash], [0xe2, 0x80, 0x93]);
+  // Split the en dash across chunks at each byte boundary, then straddle the 64 KiB pipe buffer through the CLI.
+  const text = Buffer.from('range 1–2 – café 😀\n');
+  for (const cut of [1, 2, 3, 4, text.length - 1]) {
+    await put(root, `split/${cut}.md`, Readable.from([text.subarray(0, cut), text.subarray(cut)]), { key: `split:${cut}`, expected: 'new' });
+    assert.deepEqual(await fs.readFile(path.join(root, 'files/split', `${cut}.md`)), text);
+  }
+  for (const at of [65535, 65536, 65537, 131071]) {
+    const body = Buffer.concat([Buffer.alloc(at, 97), dash, Buffer.alloc(70000, 98)]);
+    const stored = run(root, ['put', '--path', `big/${at}.md`, '--expected', 'new', '--key', `cli:${at}`], body);
+    assert.equal(stored.status, 0, stored.stderr);
+    assert.deepEqual(await fs.readFile(path.join(root, 'files/big', `${at}.md`)), body);
+    const read = run(root, ['get', '--path', `big/${at}.md`, '--raw']);
+    assert.deepEqual(read.stdout, body); assert(!body.includes(Buffer.from('�')));
+  }
+});
+
+test('put and replace that cannot get the writer lock say so as JSON on stdout, wrote nothing, and the same key succeeds later', async t => {
+  const root = await fixture(t), lock = path.join(root, '.writer-lock');
+  await fs.mkdir(lock);
+  const blocked = run(root, ['put', '--path', 'a.md', '--expected', 'new', '--key', 'busy:1'], 'data');
+  assert.equal(blocked.status, 3); assert.equal(blocked.stderr.length, 0);
+  const body = JSON.parse(blocked.stdout);
+  assert.equal(body.ok, false); assert.equal(body.error.code, 'BUSY');
+  // A lock with no owner cannot clear by waiting: no retry hint, and the message says it needs attention.
+  assert.equal(body.error.written, false); assert.equal('retryAfterSeconds' in body.error, false);
+  assert.match(body.error.message, /needs attention/);
+  await assert.rejects(fs.stat(path.join(root, 'files/a.md')), code('ENOENT'));
+  assert.deepEqual(await fs.readdir(path.join(root, 'operations')).catch(() => []), []);
+  const replace = run(root, ['replace', '--path', 'a.md', '--key', 'busy:2'], JSON.stringify({ before: 'x', after: 'y' }));
+  assert.equal(replace.status, 3); assert.equal(JSON.parse(replace.stdout).error.written, false);
+  // Other commands keep their stderr contract.
+  const other = run(root, ['move', '--path', 'a.md', '--to', 'b.md', '--expected', 'a'.repeat(64), '--key', 'busy:3']);
+  assert.equal(other.stdout.length, 0); assert.equal(JSON.parse(other.stderr).error.code, 'BUSY');
+  await fs.rmdir(lock);
+  const retried = run(root, ['put', '--path', 'a.md', '--expected', 'new', '--key', 'busy:1'], 'data');
+  assert.equal(retried.status, 0, retried.stderr); assert.equal(JSON.parse(retried.stdout).data.state, 'stored');
+});

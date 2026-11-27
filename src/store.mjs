@@ -137,9 +137,15 @@ async function acquire(lock, signal) {
     }
     ownerless = owner ? null : ownerless ?? Date.now();
     if (ownerless !== null && Date.now() - ownerless >= OWNERLESS_GRACE_MS)
-      fail('BUSY', 'Writer lock exists without an owner; confirm no command is active before recovering an interrupted operation');
-    if (Date.now() - started >= LOCK_WAIT_MS)
-      fail('BUSY', `Writer lock held by pid ${owner?.pid} on ${owner?.host} since ${owner?.at}; confirm it is active before recovering an interrupted operation${await fs.stat(`${lock}.reclaim`).then(() => ` (an interrupted reclaim also left ${lock}.reclaim)`, () => '')}`);
+      fail('BUSY', 'Writer lock needs attention: it exists without an owner; confirm no command is active before recovering an interrupted operation');
+    if (Date.now() - started >= LOCK_WAIT_MS) {
+      // Retrying can help only while a live writer or sync holds the lock.
+      const stuck = await fs.stat(`${lock}.reclaim`).then(() => true, () => false);
+      const live = Boolean(owner) && !stuck && (owner.host !== hostname() || alive(owner.pid));
+      const error = new LibraryError('BUSY', `Writer lock ${live ? 'held' : 'needs attention: held'} by pid ${owner?.pid} on ${owner?.host} since ${owner?.at}; confirm it is active before recovering an interrupted operation${stuck ? ` (an interrupted reclaim also left ${lock}.reclaim)` : ''}`);
+      error.retryable = live;
+      throw error;
+    }
     await sleep(100 + Math.random() * 150, undefined, { signal });
   }
 }

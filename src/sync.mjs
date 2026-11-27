@@ -68,6 +68,8 @@ async function inspect(root, remote, stateRoot) {
   return { remote, identity, files: entries.filter(file => !file.IsDir) };
 }
 
+export const syncConfig = root => readJSON(location(root));
+
 export async function syncStatus(root) {
   const config = await readJSON(location(root));
   return { config, revision: config ? hash(jsonBytes(config)) : null,
