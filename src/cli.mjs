@@ -31,6 +31,11 @@ Local library files, QMD retrieval, and persistence settings.
   settings                        Show settings and revision hash
   configure --expected HASH|new --key KEY < settings.json
   put --path RELATIVE --expected HASH|new --key KEY < file
+  put --path RELATIVE --expected HASH|new --key KEY --from-file ABSOLUTE_WORKSPACE_PATH
+                                  Same write from a file in the agent workspace (read-only mount),
+                                  for files above the host's 1 MiB stdin cap. The file is the only
+                                  source; stdin is ignored. A relative or outside path, a directory
+                                  or a symlink out of the workspace is refused before any write
                                   Waits up to 60 s for the writer lock (or a running sync).
                                   BUSY: JSON on stdout, written:false (retryAfterSeconds while a live writer holds it); the same --key may be retried
   replace --path RELATIVE --key KEY < replacement.json
@@ -62,7 +67,8 @@ Local library files, QMD retrieval, and persistence settings.
   git ...                        Native Git in the bound Library working tree
 
 Local commands emit JSON (--json is also accepted); get --raw and qmd preserve
-native output. Files are limited to 512 MiB. Existing files require their current
+native output. Files are limited to 512 MiB. The host caps stdin and command output
+at 1 MiB each: write larger files with put --from-file; read them with get --offset/--length. Existing files require their current
 SHA-256. Stable operation keys cannot be reused for different writes.
 State: EZ_LIBRARY_STATE (absolute), default /state. Production uses the agent's
 registered Docker plugin. Credentials belong to provider tools, never settings.
@@ -101,6 +107,39 @@ async function readSettingsInput() {
   try { parsed = JSON.parse(Buffer.concat(parts).toString('utf8')); }
   catch { fail('INVALID', 'Settings must be valid JSON'); }
   return validateSettings(parsed);
+}
+// A file larger than the host's 1 MiB stdin cap arrives by its path in the read-only workspace mount.
+// Core names that workspace in EZ_AGENT_WORKSPACE; the root is never guessed. Stdin is not read.
+// The check applies to the open handle, not to a name: after the open the kernel's own path for that
+// descriptor (/proc/self/fd/N) must be a regular file inside the workspace, so no later rename or symlink
+// swap can change the answer. The runtime is a Linux container; without /proc/self/fd the flag is refused.
+// `hooks` lets a test change the tree between the steps or move the probe; the CLI passes none.
+const inside = (root, file) => file.startsWith(root + path.sep);
+async function workspaceFile(from, hooks = {}) {
+  const workspace = process.env.EZ_AGENT_WORKSPACE, procFd = hooks.procFd ?? '/proc/self/fd';
+  if (!workspace) fail('INVALID', '--from-file needs the host to provide the workspace root (EZ_AGENT_WORKSPACE), which this host does not; send the file on stdin (at most 1 MiB through the host) or upgrade the host');
+  if (!path.isAbsolute(from)) fail('INVALID', '--from-file must be an absolute path inside the workspace');
+  if (!await fs.stat(procFd).then(stat => stat.isDirectory(), () => false)) fail('INVALID', '--from-file needs /proc/self/fd, which exists only on Linux (the plugin runs in a Linux container); send the file on stdin instead');
+  const unreadable = () => fail('INVALID', '--from-file cannot be read inside the workspace');
+  let root, real;
+  try { root = await fs.realpath(workspace); real = await fs.realpath(from); } catch { unreadable(); }
+  if (!inside(root, real)) fail('UNSAFE_PATH', '--from-file must stay inside the workspace');
+  await hooks.beforeOpen?.();
+  let handle;
+  try { handle = await fs.open(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch { unreadable(); }
+  try {
+    await hooks.afterOpen?.();
+    let opened;
+    try { opened = await fs.realpath(`${procFd}/${handle.fd}`); } catch { unreadable(); }
+    if (!inside(root, opened)) fail('UNSAFE_PATH', '--from-file must stay inside the workspace');
+    if (!(await handle.stat()).isFile()) fail('UNSAFE_PATH', '--from-file must be a regular file');
+    return handle;
+  } catch (error) { await handle.close(); throw error; }
+}
+export async function putFromFile(root, relative, from, options, hooks) {
+  const source = await workspaceFile(from, hooks);
+  try { return await put(root, relative, source.createReadStream({ autoClose: false }), options); }
+  finally { await source.close(); }
 }
 export async function main(argv = process.argv.slice(2)) {
   const command = argv[0];
@@ -182,7 +221,7 @@ export async function main(argv = process.argv.slice(2)) {
         return (await rclone(root, rest, { inherit: true })).code;
       }); return;
     }
-    const allowed = { doctor: [], settings: [], configure: ['expected', 'key'], put: ['path', 'expected', 'key'], replace: ['path', 'key'],
+    const allowed = { doctor: [], settings: [], configure: ['expected', 'key'], put: ['path', 'expected', 'key', 'from-file'], replace: ['path', 'key'],
       get: ['path', 'raw', 'offset', 'length', 'expected'], 'pdf-text': ['path'], list: ['prefix', 'limit'], operation: ['key'],
       'sync-plan': ['remote'], 'sync-adopt': ['remote'], 'sync-status': [], 'sync-run': [],
       move: ['path', 'to', 'expected', 'key'], remove: ['path', 'expected', 'key'], gzip: ['path', 'to', 'expected', 'key'],
@@ -211,7 +250,8 @@ export async function main(argv = process.argv.slice(2)) {
     }
     if (command === 'put') {
       if (!opts.path) fail('INVALID', 'Supply --path');
-      emit(await put(root, opts.path, process.stdin, { key: opts.key, expected: opts.expected })); return;
+      if (opts['from-file'] === undefined) { emit(await put(root, opts.path, process.stdin, { key: opts.key, expected: opts.expected })); return; }
+      emit(await putFromFile(root, opts.path, opts['from-file'], { key: opts.key, expected: opts.expected })); return;
     }
     if (command === 'gzip') { emit(await gzipFile(root, opts)); return; }
     if (command === 'replace') {
